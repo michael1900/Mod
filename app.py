@@ -5,9 +5,9 @@ import re
 import time
 import random
 import threading
-from urllib.parse import urlencode, quote_plus
-from fastapi import FastAPI, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from urllib.parse import urlencode, quote_plus, unquote
+from fastapi import FastAPI, Request, Form, HTTPException, Depends
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import uvicorn
@@ -16,14 +16,21 @@ import uvicorn
 PORT = int(os.environ.get('PORT', 3000))
 FETCH_INTERVAL = 20 * 60  # 20 minuti in secondi
 FETCH_TIMEOUT = 10  # 10 secondi
+DOMAIN = os.environ.get('DOMAIN', 'melatv0bug.duckdns.org')  # Dominio esterno
 
 # Percorsi file
-CONFIG_FILE = 'config.json'
-HEADERS_FILE = 'headers.json'
-GENRE_FILE = 'genres.json'
-ICONS_FILE = 'channel_icons.json'
-CHANNELS_FILE = 'channels_data.json'
-SAMPLE_CHANNELS_FILE = 'sample_channels.json'
+DATA_DIR = 'data'
+os.makedirs(DATA_DIR, exist_ok=True)
+CONFIG_FILE = os.path.join(DATA_DIR, 'config.json')
+HEADERS_FILE = os.path.join(DATA_DIR, 'headers.json')
+GENRE_FILE = os.path.join(DATA_DIR, 'genres.json')
+ICONS_FILE = os.path.join(DATA_DIR, 'channel_icons.json')
+CHANNELS_FILE = os.path.join(DATA_DIR, 'channels_data.json')
+SAMPLE_CHANNELS_FILE = os.path.join(DATA_DIR, 'sample_channels.json')
+
+# Default MediaFlow settings dalle variabili d'ambiente
+DEFAULT_MEDIAFLOW_URL = os.environ.get('MEDIAFLOW_DEFAULT_URL', '')
+DEFAULT_MEDIAFLOW_PSW = os.environ.get('MEDIAFLOW_DEFAULT_PSW', '')
 
 # Generi disponibili
 AVAILABLE_GENRES = [
@@ -50,6 +57,12 @@ templates = Jinja2Templates(directory="templates")
 # Cache in memoria
 channel_cache = {}
 
+# Crea una classe per i parametri di configurazione
+class ConfigParams:
+    def __init__(self, mediaflow_url=None, mediaflow_psw=None):
+        self.mediaflow_url = mediaflow_url or DEFAULT_MEDIAFLOW_URL
+        self.mediaflow_psw = mediaflow_psw or DEFAULT_MEDIAFLOW_PSW
+
 def load_json_file(filename, default=None):
     """Carica un file JSON, ritorna default se il file non esiste o non è valido"""
     try:
@@ -63,6 +76,8 @@ def load_json_file(filename, default=None):
 def save_json_file(filename, data):
     """Salva i dati in un file JSON"""
     try:
+        # Crea la directory se non esiste
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
         with open(filename, 'w', encoding='utf-8') as file:
             json.dump(data, file, indent=2, ensure_ascii=False)
         return True
@@ -138,7 +153,7 @@ def create_manifest(mediaflow_url, mediaflow_psw):
         "id": "org.mediaflow.iptv",
         "name": "MediaFlow IPTV",
         "version": "1.0.0",
-        "description": "Watch IPTV channels from MediaFlow service",
+        "description": f"Watch IPTV channels from MediaFlow service ({mediaflow_url})",
         "resources": ["catalog", "meta", "stream"],
         "types": ["tv"],
         "catalogs": [
@@ -163,7 +178,33 @@ def save_config(mediaflow_url, mediaflow_psw):
 
 def load_config():
     """Carica la configurazione dell'utente"""
-    return load_json_file(CONFIG_FILE, {"mediaflow_url": "", "mediaflow_psw": ""})
+    config = load_json_file(CONFIG_FILE, {
+        "mediaflow_url": DEFAULT_MEDIAFLOW_URL, 
+        "mediaflow_psw": DEFAULT_MEDIAFLOW_PSW
+    })
+    return config
+
+def get_config_from_request(request: Request) -> ConfigParams:
+    """Estrae i parametri di configurazione dalla richiesta o dal path"""
+    # Prima controlla se ci sono parametri mfp e psw nell'URL
+    path = request.url.path
+    if "/mfp/" in path and "/psw/" in path:
+        try:
+            # Estrai i parametri dal path
+            parts = path.split("/")
+            mfp_index = parts.index("mfp")
+            psw_index = parts.index("psw")
+            
+            if mfp_index < len(parts) - 1 and psw_index < len(parts) - 1:
+                mediaflow_url = unquote(parts[mfp_index + 1])
+                mediaflow_psw = unquote(parts[psw_index + 1])
+                return ConfigParams(mediaflow_url, mediaflow_psw)
+        except (ValueError, IndexError) as e:
+            print(f"Errore nell'estrazione dei parametri dall'URL: {e}")
+    
+    # Se non ci sono parametri nell'URL, usa la configurazione salvata
+    config = load_config()
+    return ConfigParams(config["mediaflow_url"], config["mediaflow_psw"])
 
 def to_meta(channel, mediaflow_url, mediaflow_psw):
     """Converte un canale in un oggetto meta formato Stremio"""
@@ -204,13 +245,15 @@ def to_meta(channel, mediaflow_url, mediaflow_psw):
         }
     }
 
-def get_all_channels():
+def get_all_channels(params: ConfigParams):
     """Ottiene tutti i canali con i metadati per Stremio"""
-    if 'all_channels' in channel_cache:
-        return channel_cache['all_channels']
+    # Genera una chiave di cache basata sui parametri
+    cache_key = f"channels_{params.mediaflow_url}_{params.mediaflow_psw}"
     
-    config = load_config()
-    if not config["mediaflow_url"] or not config["mediaflow_psw"]:
+    if cache_key in channel_cache:
+        return channel_cache[cache_key]
+    
+    if not params.mediaflow_url or not params.mediaflow_psw:
         return []
     
     channels_data = load_json_file(CHANNELS_FILE, [])
@@ -218,27 +261,19 @@ def get_all_channels():
         return []
     
     all_channels = [
-        to_meta(channel, config["mediaflow_url"], config["mediaflow_psw"])
+        to_meta(channel, params.mediaflow_url, params.mediaflow_psw)
         for channel in channels_data
     ]
     
-    channel_cache['all_channels'] = all_channels
+    channel_cache[cache_key] = all_channels
     return all_channels
 
 def generate_channel_list():
     """Genera la lista dei canali"""
     # Carica le configurazioni
-    config = load_config()
     headers = load_json_file(HEADERS_FILE, {})
     genre_mapping = load_json_file(GENRE_FILE, {})
     icons = load_json_file(ICONS_FILE, {})
-    
-    if not config or not config["mediaflow_url"] or not config["mediaflow_psw"]:
-        print("Configurazione mancante o incompleta")
-        return False
-    
-    # Prepara la lista m3u8
-    channels_data = []
     
     # Se headers è vuoto, inizializza con alcuni default
     if not headers:
@@ -248,6 +283,9 @@ def generate_channel_list():
             "Origin": "https://vavoo.to"
         }
         save_json_file(HEADERS_FILE, headers)
+    
+    # Prepara la lista m3u8
+    channels_data = []
     
     # Esempio di dati di canale per test se necessario
     if not os.path.exists(SAMPLE_CHANNELS_FILE):
@@ -296,9 +334,8 @@ def generate_channel_list():
     # Salva i dati dei canali
     if save_json_file(CHANNELS_FILE, channels_data):
         print(f"Lista canali salvata: {len(channels_data)} canali")
-        # Invalida la cache
-        if 'all_channels' in channel_cache:
-            del channel_cache['all_channels']
+        # Invalida tutte le chiavi della cache
+        channel_cache.clear()
         return True
     else:
         print("Errore nel salvataggio della lista canali")
@@ -328,14 +365,27 @@ def create_index_template():
         label { display: block; margin-bottom: 5px; }
         input[type="text"], input[type="password"] { width: 100%; padding: 8px; }
         button { padding: 10px 15px; background: #4caf50; color: white; border: none; cursor: pointer; }
-        .install-button { margin-top: 20px; display: none; }
+        .install-button { margin-top: 20px; }
         .success { color: green; margin-top: 10px; }
+        .current { margin-top: 20px; padding: 15px; background-color: #f8f8f8; border-radius: 5px; }
     </style>
 </head>
 <body>
     <h1>MediaFlow IPTV Addon</h1>
-    <p>Inserisci i dati per configurare l'addon.</p>
     
+    <div class="current">
+        <h3>Configurazione attuale</h3>
+        <p><strong>URL MediaFlow:</strong> {{ url }}</p>
+        <p><strong>Password:</strong> {{ psw }}</p>
+        
+        <div class="install-button">
+            <a href="stremio://{{ host }}/mfp/{{ url }}/psw/{{ psw }}/manifest.json">
+                <button type="button">Installa in Stremio</button>
+            </a>
+        </div>
+    </div>
+    
+    <h3>Cambia configurazione</h3>
     <form id="configForm" action="/save-config" method="post">
         <div class="form-group">
             <label for="mediaflow_url">URL MediaFlow Proxy:</label>
@@ -350,14 +400,8 @@ def create_index_template():
         <button type="submit">Salva Configurazione</button>
     </form>
     
-    <div id="success" class="success" style="{{ 'display:block;' if url else 'display:none;' }}">
-        Configurazione salvata! Ora puoi installare l'addon in Stremio.
-    </div>
-    
-    <div id="installButton" class="install-button" style="{{ 'display:block;' if url else 'display:none;' }}">
-        <a href="stremio://addon.stremio.com/{{ host }}/mfp/{{ url }}/psw/{{ psw }}/manifest.json">
-            <button type="button">Installa in Stremio</button>
-        </a>
+    <div id="success" class="success" style="display:none;">
+        Configurazione salvata! Usa il pulsante per installare l'addon con i nuovi parametri.
     </div>
     
     <script>
@@ -374,13 +418,9 @@ def create_index_template():
             .then(data => {
                 if (data.success) {
                     document.getElementById('success').style.display = 'block';
-                    document.getElementById('installButton').style.display = 'block';
-                    
-                    // Update the install URL with new values
-                    const url = document.getElementById('mediaflow_url').value;
-                    const psw = document.getElementById('mediaflow_psw').value;
-                    const installLink = document.querySelector('#installButton a');
-                    installLink.href = `stremio://addon.stremio.com/${window.location.host}/mfp/${encodeURIComponent(url)}/psw/${encodeURIComponent(psw)}/manifest.json`;
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1500);
                 }
             });
         });
@@ -401,7 +441,7 @@ async def home(request: Request):
             "request": request, 
             "url": config["mediaflow_url"], 
             "psw": config["mediaflow_psw"],
-            "host": request.headers.get("host", "localhost")
+            "host": DOMAIN
         }
     )
 
@@ -412,8 +452,9 @@ async def save_configuration(mediaflow_url: str = Form(...), mediaflow_psw: str 
         raise HTTPException(status_code=400, detail="Mancano dei parametri")
     
     if save_config(mediaflow_url, mediaflow_psw):
-        # Trigger generazione lista
-        generate_channel_list()
+        # Trigger generazione lista per aggiornare la cache
+        # Ma prima invalidiamo la cache
+        channel_cache.clear()
         return {"success": True}
     else:
         raise HTTPException(status_code=500, detail="Errore nel salvataggio della configurazione")
@@ -421,28 +462,25 @@ async def save_configuration(mediaflow_url: str = Form(...), mediaflow_psw: str 
 @app.get("/mfp/{url}/psw/{psw}/manifest.json")
 async def manifest_with_params(url: str, psw: str):
     """Manifest con parametri inclusi nell'URL"""
-    config = {"mediaflow_url": url, "mediaflow_psw": psw}
-    save_json_file(CONFIG_FILE, config)
-    
-    # Trigger generazione lista
-    generate_channel_list()
-    
-    return create_manifest(url, psw)
+    params = ConfigParams(url, psw)
+    # Non salviamo più qui la configurazione - la usiamo solo per questa richiesta
+    return create_manifest(params.mediaflow_url, params.mediaflow_psw)
 
 @app.get("/manifest.json")
-async def manifest():
+async def manifest(request: Request):
     """Manifest dell'addon"""
-    config = load_config()
-    return create_manifest(config["mediaflow_url"], config["mediaflow_psw"])
+    params = get_config_from_request(request)
+    return create_manifest(params.mediaflow_url, params.mediaflow_psw)
 
 @app.get("/catalog/{type}/{id}.json")
-async def catalog(type: str, id: str, genre: str = None, search: str = None):
+async def catalog(type: str, id: str, request: Request, genre: str = None, search: str = None):
     """Catalogo dei canali"""
     if type != "tv" or not id.startswith("mediaflow-"):
         return {"metas": []}
     
+    params = get_config_from_request(request)
     category = id.split("-")[1]
-    all_channels = get_all_channels()
+    all_channels = get_all_channels(params)
     
     # Filtra per categoria
     filtered_channels = [c for c in all_channels if category in c["genres"]]
@@ -456,12 +494,13 @@ async def catalog(type: str, id: str, genre: str = None, search: str = None):
     return {"metas": filtered_channels}
 
 @app.get("/meta/{type}/{id}.json")
-async def meta(type: str, id: str):
+async def meta(type: str, id: str, request: Request):
     """Metadati del canale"""
     if type != "tv" or not id.startswith("mediaflow-"):
         return {"meta": {}}
     
-    all_channels = get_all_channels()
+    params = get_config_from_request(request)
+    all_channels = get_all_channels(params)
     channel = next((c for c in all_channels if c["id"] == id), None)
     
     if channel:
@@ -470,12 +509,13 @@ async def meta(type: str, id: str):
         return {"meta": {}}
 
 @app.get("/stream/{type}/{id}.json")
-async def stream(type: str, id: str):
+async def stream(type: str, id: str, request: Request):
     """Stream del canale"""
     if type != "tv" or not id.startswith("mediaflow-"):
         return {"streams": []}
     
-    all_channels = get_all_channels()
+    params = get_config_from_request(request)
+    all_channels = get_all_channels(params)
     channel = next((c for c in all_channels if c["id"] == id), None)
     
     if channel and "streamInfo" in channel:
