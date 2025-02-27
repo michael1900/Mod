@@ -6,12 +6,17 @@ import logging
 import sys
 import re
 
-# Carica configurazione dal JSON
+# Carica configurazione generale e icone
 def load_config():
     with open("config.json", "r", encoding="utf-8") as f:
-        return json.load(f)
+        config = json.load(f)
+    
+    with open("icons.json", "r", encoding="utf-8") as f:
+        icons = json.load(f)
+    
+    return config, icons
 
-config = load_config()
+config, icons = load_config()
 
 def get_auth_signature():
     try:
@@ -109,7 +114,7 @@ def generate_m3u(channels_json, signature, filename="channels.m3u8"):
             print(f"Processing channel {idx}/{len(items)}: {name}")
 
             category = get_category(name)
-            logo_url = config["channel_logos"].get(name.lower(), "")
+            logo_url = icons.get(tvg_id.lower(), "")
 
             f.write(f'#EXTINF:-1 tvg-id="{tvg_id}" tvg-name="{tvg_id}" tvg-logo="{logo_url}" group-title="{category}",{tvg_id}\n')
             f.write('#EXTVLCOPT:http-user-agent=okhttp/4.11.0\n')
