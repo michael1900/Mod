@@ -4,9 +4,8 @@ import os
 import re
 import time
 import random
-import threading
 from urllib.parse import urlencode, quote_plus, unquote
-from fastapi import FastAPI, Request, Form, HTTPException
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -14,7 +13,6 @@ import uvicorn
 
 # Costanti
 PORT = int(os.environ.get('PORT', 3000))
-FETCH_INTERVAL = 20 * 60  # 20 minuti in secondi
 DOMAIN = os.environ.get('DOMAIN', 'melatv0bug.duckdns.org')  # Dominio esterno
 
 # Default MediaFlow settings dalle variabili d'ambiente
@@ -180,7 +178,7 @@ def get_channels_data():
     current_time = time.time()
     
     # Se la cache è vuota o è passato troppo tempo dall'ultimo aggiornamento
-    if not channels_data_cache or (current_time - channels_data_timestamp) > FETCH_INTERVAL:
+    if not channels_data_cache or (current_time - channels_data_timestamp) > 3600:  # 1 ora
         print("Generazione lista canali...")
         channels = load_json_file(CHANNELS_FILE, [])
         if not channels:
@@ -224,17 +222,24 @@ def create_index_template():
 <head>
     <title>MediaFlow IPTV Addon</title>
     <style>
-        body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
-        .form-group { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 5px; }
-        input[type="text"], input[type="password"] { width: 100%; padding: 8px; }
-        button { padding: 10px 15px; background: #4caf50; color: white; border: none; cursor: pointer; }
-        .install-section { margin-top: 20px; padding: 15px; background-color: #f5f5f5; border-radius: 5px; }
+        body { font-family: Arial, sans-serif; max-width: 650px; margin: 0 auto; padding: 20px; }
+        .header { text-align: center; margin-bottom: 30px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: bold; }
+        input[type="text"], input[type="password"] { width: 100%; padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; }
+        .btn { display: inline-block; padding: 12px 20px; background: #4caf50; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
+        .btn:hover { background: #45a049; }
+        .result-section { margin-top: 30px; padding: 20px; background-color: #f8f8f8; border-radius: 8px; display: none; }
+        .install-btn { background: #2196F3; }
+        .install-btn:hover { background: #0b7dda; }
+        .url-display { word-break: break-all; padding: 10px; background: #eee; border-radius: 4px; margin: 15px 0; }
     </style>
 </head>
 <body>
-    <h1>MediaFlow IPTV Addon</h1>
-    <p>Configura e installa l'addon per Stremio</p>
+    <div class="header">
+        <h1>MediaFlow IPTV Addon per Stremio</h1>
+        <p>Inserisci i dati di MediaFlow Proxy per generare il link di installazione</p>
+    </div>
     
     <div class="form-group">
         <label for="mediaflow_url">URL MediaFlow Proxy:</label>
@@ -246,14 +251,15 @@ def create_index_template():
         <input type="password" id="mediaflow_psw" value="{{ default_psw }}" placeholder="Password">
     </div>
     
-    <div class="install-section">
-        <button id="generateLink">Genera Link di Installazione</button>
-        <div id="installButton" style="display:none; margin-top:15px;">
-            <p>Link generato! Clicca sul pulsante per installare:</p>
-            <a id="stremioLink" href="#">
-                <button>Installa in Stremio</button>
-            </a>
-        </div>
+    <button id="generateLink" class="btn">Genera Link di Installazione</button>
+    
+    <div id="resultSection" class="result-section">
+        <h3>Link generato!</h3>
+        <p>Ecco il link per installare l'addon in Stremio:</p>
+        <div id="generatedUrl" class="url-display"></div>
+        <a id="stremioLink" href="#">
+            <button class="btn install-btn">Installa in Stremio</button>
+        </a>
     </div>
     
     <script>
@@ -273,7 +279,8 @@ def create_index_template():
             const stremioLink = `stremio://${domain}/mfp/${encodedUrl}/psw/${encodedPsw}/manifest.json`;
             
             document.getElementById('stremioLink').href = stremioLink;
-            document.getElementById('installButton').style.display = 'block';
+            document.getElementById('generatedUrl').textContent = stremioLink;
+            document.getElementById('resultSection').style.display = 'block';
         });
     </script>
 </body>
