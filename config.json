@@ -1,0 +1,87 @@
+{
+  "headers": {
+    "user-agent": "okhttp/4.11.0",
+    "accept": "application/json",
+    "content-type": "application/json; charset=utf-8",
+    "content-length": "1106",
+    "accept-encoding": "gzip"
+  },
+  "signature_request": {
+    "token": "8Us2TfjeOFrzqFFTEjL3E5KfdAWGa5PV3wQe60uK4BmzlkJRMYFu0ufaM_eeDXKS2U04XUuhbDTgGRJrJARUwzDyCcRToXhW5AcDekfFMfwNUjuieeQ1uzeDB9YWyBL2cn5Al3L3gTnF8Vk1t7rPwkBob0swvxA",
+    "reason": "player.enter",
+    "locale": "de",
+    "theme": "dark",
+    "metadata": {
+      "device": {
+        "type": "Handset",
+        "brand": "google",
+        "model": "Nexus 5",
+        "name": "21081111RG",
+        "uniqueId": "d10e5d99ab665233"
+      },
+      "os": {
+        "name": "android",
+        "version": "7.1.2",
+        "abis": ["arm64-v8a", "armeabi-v7a", "armeabi"],
+        "host": "android"
+      },
+      "app": {
+        "platform": "android",
+        "version": "3.0.2",
+        "buildId": "288045000",
+        "engine": "jsc",
+        "signatures": ["09f4e07040149486e541a1cb34000b6e12527265252fa2178dfe2bd1af6b815a"],
+        "installer": "com.android.secex"
+      }
+    },
+    "version": {
+      "package": "tv.vavoo.app",
+      "binary": "3.0.2",
+      "js": "3.1.4"
+    }
+  },
+  "channel_filters": [
+    "sky", "fox", "rai", "cine34", "real time", "crime+ investigation", "top crime", "wwe", "tennis", "k2",
+    "inter", "rsi", "la 7", "la7", "la 7d", "la7d", "27 twentyseven", "premium crime", "comedy central", "super!",
+    "animal planet", "hgtv", "avengers grimm channel", "catfish", "rakuten", "nickelodeon", "cartoonito", "nick jr",
+    "history", "nat geo", "tv8", "canale 5", "italia", "mediaset", "rete 4", "focus", "iris", "discovery", "dazn",
+    "cine 34", "la 5", "giallo", "dmax", "cielo", "eurosport", "disney+", "food", "tv 8", "mototrend",
+    "boing", "frisbee", "deejay tv", "cartoon network", "tg com 24", "warner tv", "boing plus",
+    "27 twenty seven", "tgcom 24", "sky uno"
+  ],
+  "channel_remove": [
+    "maria+vision", "telepace", "uninettuno", "lombardia", "cusano", "FM italia", "Juwelo",
+    "kiss kiss", "qvc", "rete tv", "italia 3", "fishing", "inter tv", "avengers"
+  ],
+  "category_keywords": {
+    "SKY": ["sky cin", "tv 8", "fox", "comedy central", "animal planet", "nat geo", "tv8", "sky atl", "sky uno", "sky prima", "sky serie", "sky arte", "sky docum", "sky natu", "cielo", "history", "sky tg"],
+    "RAI": ["rai"],
+    "MEDIASET": ["mediaset", "canale 5", "rete 4", "italia", "focus", "tg com 24", "tgcom 24", "premium crime", "iris", "mediaset iris", "cine 34", "27 twenty seven", "27 twentyseven"],
+    "DISCOVERY": ["discovery", "real time", "investigation", "top crime", "wwe", "hgtv", "nove", "dmax", "food network", "warner tv"],
+    "SPORT": ["sport", "dazn", "tennis", "moto", "f1", "golf", "sportitalia", "sport italia", "solo calcio", "solocalcio"],
+    "BAMBINI": ["boing", "cartoon", "k2", "discovery k2", "nick", "super", "frisbee"],
+    "ALTRI": []
+  },
+  "m3u_options": {
+    "user_agent": "okhttp/4.11.0",
+    "origin": "https://vavoo.to/",
+    "referrer": "https://vavoo.to/",
+    "epg_url": "http://epg-guide.com/it.gz"
+  },
+  "api_endpoints": {
+    "channel_list": "https://vavoo.to/vto-cluster/mediahubmx-catalog.json",
+    "resolve_link": "https://vavoo.to/vto-cluster/mediahubmx-resolve.json"
+  },
+  "channel_request": {
+    "language": "de",
+    "region": "AT",
+    "catalogId": "vto-iptv",
+    "id": "vto-iptv",
+    "adult": false,
+    "search": "",
+    "sort": "name",
+    "filter": {"group": "Italy"},
+    "cursor": 0,
+    "clientVersion": "3.0.2"
+  }
+}
