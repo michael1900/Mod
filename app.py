@@ -4,6 +4,7 @@ import os
 import re
 import time
 import random
+import subprocess
 from urllib.parse import urlencode, quote_plus, unquote
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -11,10 +12,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+import threading
 
 # Costanti
 PORT = int(os.environ.get('PORT', 3000))
 DOMAIN = os.environ.get('DOMAIN', 'melatv0bug.duckdns.org')  # Dominio esterno
+M3U8_GENERATOR = 'm3u8_vavoo.py'  # Script per generare la lista m3u8
+M3U8_FILE = 'channels.m3u8'  # File m3u8 generato
 
 # Default MediaFlow settings dalle variabili d'ambiente
 DEFAULT_MEDIAFLOW_URL = os.environ.get('MEDIAFLOW_DEFAULT_URL', '')
@@ -26,15 +30,11 @@ os.makedirs(DATA_DIR, exist_ok=True)
 HEADERS_FILE = os.path.join(DATA_DIR, 'headers.json')
 ICONS_FILE = os.path.join(DATA_DIR, 'channel_icons.json')
 CHANNELS_FILE = os.path.join(DATA_DIR, 'channels_data.json')
+CATEGORY_KEYWORDS_FILE = 'category_keywords.json'  # File per le categorie
 
-# Generi disponibili
-AVAILABLE_GENRES = [
-    "animation", "business", "classic", "comedy", "cooking", "culture", 
-    "documentary", "education", "entertainment", "family", "kids", 
-    "legislative", "lifestyle", "movies", "music", "general", "religious", 
-    "news", "outdoor", "relax", "series", "science", "shop", "sports", 
-    "travel", "weather", "xxx", "auto"
-]
+# Cache per la signature di Vavoo
+vavoo_signature = None
+vavoo_signature_timestamp = 0
 
 # Inizializza cartelle necessarie
 os.makedirs("templates", exist_ok=True)
@@ -92,11 +92,6 @@ def clean_channel_name(name):
             return name[:-3]
     return name
 
-def generate_id(name):
-    """Genera un ID unico basato sul nome del canale"""
-    clean_name = re.sub(r'[^a-zA-Z0-9]', '', clean_channel_name(name).lower())
-    return f"{clean_name}-{int(time.time())}-{random.randint(1000, 9999)}"
-
 def extract_url_params(request: Request):
     """Estrae i parametri di mediaflow dall'URL"""
     path = request.url.path
@@ -120,8 +115,42 @@ def extract_url_params(request: Request):
     
     return mediaflow_url, mediaflow_psw
 
+def get_category_keywords():
+    """Ottiene le categorie dal file category_keywords.json"""
+    # Se il file esiste, caricalo
+    if os.path.exists(CATEGORY_KEYWORDS_FILE):
+        return load_json_file(CATEGORY_KEYWORDS_FILE)
+    
+    # Altrimenti usa categorie di default e salva il file
+    default_categories = {
+        "SKY": ["sky cin", "tv 8", "fox", "comedy central", "animal planet", "nat geo", "tv8", "sky atl", "sky uno"],
+        "RAI": ["rai"],
+        "MEDIASET": ["mediaset", "canale 5", "rete 4", "italia", "focus", "tg com 24", "premium crime", "iris"],
+        "DISCOVERY": ["discovery", "real time", "investigation", "top crime", "wwe", "hgtv", "nove", "dmax"],
+        "SPORT": ["sport", "dazn", "tennis", "moto", "f1", "golf", "sportitalia", "solo calcio"],
+        "ALTRI": [],
+        "BAMBINI": ["boing", "cartoon", "k2", "discovery k2", "nick", "super", "frisbee"]
+    }
+    
+    # Salva le categorie di default
+    save_json_file(CATEGORY_KEYWORDS_FILE, default_categories)
+    return default_categories
+
 def create_manifest(mediaflow_url, mediaflow_psw):
     """Crea il manifest dell'addon con i parametri personalizzati"""
+    # Carica le categorie dal file
+    categories = get_category_keywords()
+    
+    # Usa le categorie per i cataloghi
+    catalogs = []
+    for category in categories.keys():
+        catalogs.append({
+            "type": "tv",
+            "id": f"mediaflow-{category}",
+            "name": f"MediaFlow - {category}",
+            "extra": [{"name": "search", "isRequired": False}]
+        })
+    
     return {
         "id": "org.mediaflow.iptv",
         "name": "MediaFlow IPTV",
@@ -129,14 +158,7 @@ def create_manifest(mediaflow_url, mediaflow_psw):
         "description": f"Watch IPTV channels from MediaFlow service ({mediaflow_url})",
         "resources": ["catalog", "meta", "stream"],
         "types": ["tv"],
-        "catalogs": [
-            {
-                "type": "tv",
-                "id": f"mediaflow-{genre}",
-                "name": f"MediaFlow - {genre.capitalize()}",
-                "extra": [{"name": "search", "isRequired": False}]
-            } for genre in AVAILABLE_GENRES
-        ],
+        "catalogs": catalogs,
         "idPrefixes": ["mediaflow-"],
         "behaviorHints": { 
             "configurable": False,
@@ -147,35 +169,237 @@ def create_manifest(mediaflow_url, mediaflow_psw):
         "background": "https://dl.strem.io/addon-background.jpg",
     }
 
+def get_channel_category(channel_name):
+    """Determina la categoria di un canale in base al suo nome"""
+    category_keywords = get_category_keywords()
+    channel_name_lower = channel_name.lower()
+    
+    # Cerca in tutte le categorie
+    for category, keywords in category_keywords.items():
+        for keyword in keywords:
+            if keyword.lower() in channel_name_lower:
+                return category
+    
+    # Se nessuna categoria corrisponde, usa ALTRI
+    return "ALTRI"
+
+def get_vavoo_signature():
+    """Ottiene la signature per Vavoo, dal file o generando una nuova"""
+    global vavoo_signature, vavoo_signature_timestamp
+    current_time = time.time()
+    
+    # Se la signature non esiste o è scaduta (dopo 3 ore)
+    if not vavoo_signature or (current_time - vavoo_signature_timestamp) > 10800:
+        try:
+            # Esegui lo script m3u8_vavoo.py per ottenere la signature
+            result = subprocess.run(['python3', M3U8_GENERATOR, '--get-signature'], 
+                                  capture_output=True, text=True, check=True)
+            new_signature = result.stdout.strip()
+            if new_signature:
+                vavoo_signature = new_signature
+                vavoo_signature_timestamp = current_time
+                print(f"Nuova signature ottenuta: {vavoo_signature[:10]}...")
+            else:
+                print("Nessuna signature ottenuta dallo script")
+        except Exception as e:
+            print(f"Errore durante l'ottenimento della signature: {e}")
+    
+    return vavoo_signature
+
+def generate_m3u8_list():
+    """Genera la lista m3u8 utilizzando lo script m3u8_vavoo.py"""
+    try:
+        print("Generazione lista M3U8...")
+        result = subprocess.run(['python3', M3U8_GENERATOR], 
+                              capture_output=True, text=True)
+        if result.returncode == 0:
+            print("Lista M3U8 generata con successo")
+            return True
+        else:
+            print(f"Errore nella generazione della lista M3U8: {result.stderr}")
+            return False
+    except Exception as e:
+        print(f"Errore durante l'esecuzione del generatore: {e}")
+        return False
+
+def parse_m3u8_to_channels():
+    """Analizza il file M3U8 e lo converte in canali per Stremio"""
+    channels = []
+    
+    try:
+        if not os.path.exists(M3U8_FILE):
+            print(f"File {M3U8_FILE} non trovato, generazione in corso...")
+            if not generate_m3u8_list():
+                return []
+        
+        with open(M3U8_FILE, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        channel = None
+        headers = {}
+        signature_placeholder = None
+        
+        for i, line in enumerate(lines):
+            line = line.strip()
+            
+            if line.startswith('#EXTINF:'):
+                # Inizia un nuovo canale
+                channel = {}
+                
+                # Estrai tvg-id
+                tvg_id_match = re.search(r'tvg-id="([^"]+)"', line)
+                if tvg_id_match:
+                    channel_id = tvg_id_match.group(1).replace(' ', '-').lower()
+                    channel['id'] = channel_id
+                else:
+                    channel['id'] = f"channel-{len(channels)}"
+                
+                # Estrai il nome
+                name_match = re.search(r',([^\n]+)$', line)
+                if name_match:
+                    channel['name'] = name_match.group(1).strip()
+                else:
+                    channel['name'] = f"Channel {len(channels)}"
+                
+                # Estrai il genere/categoria dal gruppo o determinala dal nome
+                genre_match = re.search(r'group-title="([^"]+)"', line)
+                if genre_match:
+                    channel['genre'] = genre_match.group(1)
+                else:
+                    # Se non c'è un gruppo, determina la categoria dal nome
+                    channel['genre'] = get_channel_category(channel['name'])
+                
+                # Estrai il logo
+                logo_match = re.search(r'tvg-logo="([^"]+)"', line)
+                if logo_match:
+                    channel['logo'] = logo_match.group(1)
+                else:
+                    channel['logo'] = ""
+                
+                # Reset headers per il nuovo canale
+                headers = {}
+                signature_placeholder = None
+                
+            elif line.startswith('#EXTVLCOPT:'):
+                # Opzioni VLC per gli header
+                if "http-user-agent=" in line:
+                    headers['user-agent'] = line.split('=', 1)[1]
+                elif "http-origin=" in line:
+                    headers['origin'] = line.split('=', 1)[1]
+                elif "http-referrer=" in line:
+                    headers['referer'] = line.split('=', 1)[1]
+                elif "mediahubmx-signature=" in line:
+                    signature_placeholder = line.split('=', 1)[1]
+            
+            elif line and not line.startswith('#') and channel:
+                # Questa è la URL
+                channel['url'] = line
+                channel['headers'] = headers
+                channel['signature_placeholder'] = signature_placeholder
+                channels.append(channel)
+                channel = None
+        
+        # Salva i canali nel file JSON
+        if channels:
+            save_json_file(CHANNELS_FILE, channels)
+            print(f"Salvati {len(channels)} canali nel file JSON")
+        
+        return channels
+        
+    except Exception as e:
+        print(f"Errore nell'analisi del file M3U8: {e}")
+        return []
+
+def get_channels_data():
+    """Ottiene la lista dei canali, rigenerandola solo se necessario"""
+    global channels_data_cache, channels_data_timestamp
+    current_time = time.time()
+    
+    # Se la cache è vuota o è passato troppo tempo dall'ultimo aggiornamento
+    if not channels_data_cache or (current_time - channels_data_timestamp) > 3600:  # 1 ora
+        print("Caricamento lista canali...")
+        
+        # Prima controlla se esiste il file JSON
+        channels = load_json_file(CHANNELS_FILE, [])
+        
+        # Se il file JSON non esiste o è vuoto, analizza il file M3U8
+        if not channels:
+            channels = parse_m3u8_to_channels()
+        
+        # Se ancora non abbiamo canali, usa alcuni canali di esempio
+        if not channels:
+            print("Nessun canale trovato, utilizzo canali di esempio...")
+            channels = [
+                {"id": "rai1-example", "name": "Rai 1", "url": "https://example.com/rai1.m3u8", "genre": "RAI"},
+                {"id": "canale5-example", "name": "Canale 5", "url": "https://example.com/canale5.m3u8", "genre": "MEDIASET"},
+                {"id": "skysport-example", "name": "Sky Sport", "url": "https://example.com/skysport.m3u8", "genre": "SPORT"},
+                {"id": "discovery-example", "name": "Discovery Channel", "url": "https://example.com/discovery.m3u8", "genre": "DISCOVERY"}
+            ]
+            save_json_file(CHANNELS_FILE, channels)
+        
+        channels_data_cache = channels
+        channels_data_timestamp = current_time
+        print(f"Caricati {len(channels)} canali")
+    
+    return channels_data_cache
+
 def to_meta(channel, mediaflow_url, mediaflow_psw):
     """Converte un canale in un oggetto meta formato Stremio"""
-    icons = load_json_file(ICONS_FILE, {})
+    # Ottieni il nome pulito del canale
     channel_name = clean_channel_name(channel["name"])
-    logo = icons.get(channel_name, icons.get(channel["name"], "https://dl.strem.io/addon-logo.png"))
     
-    # Prepara l'URL per lo streaming attraverso MediaFlow Proxy
-    headers = {
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
-        "referer": "https://vavoo.to/",
-        "origin": "https://vavoo.to"
-    }
+    # Ottieni il logo del canale
+    logo = channel.get("logo", "https://dl.strem.io/addon-logo.png")
     
-    params = {
-        "api_password": mediaflow_psw,
-        "d": channel["url"]
-    }
+    # Categoria/genere del canale
+    genre = channel.get("genre", "ALTRI")
     
-    # Aggiungi headers alla query string
-    for key, value in headers.items():
-        params[f"h_{key}"] = value
+    # Se il canale ha headers specifici, usali
+    headers = channel.get("headers", {})
+    signature_placeholder = channel.get("signature_placeholder")
     
-    stream_url = f"https://{mediaflow_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
+    # Se c'è un placeholder per la signature, sostituiscilo con la signature attuale
+    if signature_placeholder == "[$KEY$]":
+        # Ottieni la signature aggiornata
+        signature = get_vavoo_signature()
+        
+        # Aggiungi la signature direttamente nella URL, gestendo sia URL di Vavoo che altre
+        stream_url = channel["url"]
+        
+        # Aggiungi gli header dalla lista m3u8 ai parametri di MediaFlow
+        params = {
+            "api_password": mediaflow_psw,
+            "d": stream_url
+        }
+        
+        # Aggiungi headers alla query string
+        for key, value in headers.items():
+            params[f"h_{key}"] = value
+        
+        # Aggiungi anche la signature come header
+        if signature:
+            params["h_mediahubmx-signature"] = signature
+        
+        # Crea l'URL finale per MediaFlow
+        stream_url = f"https://{mediaflow_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
+    else:
+        # URL normale senza signature, usa solo MediaFlow con gli header standard
+        params = {
+            "api_password": mediaflow_psw,
+            "d": channel["url"]
+        }
+        
+        # Aggiungi headers alla query string
+        for key, value in headers.items():
+            params[f"h_{key}"] = value
+        
+        stream_url = f"https://{mediaflow_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
     
     return {
         "id": f"mediaflow-{channel['id']}",
         "name": channel_name,
         "type": "tv",
-        "genres": [channel.get("genre", "general")],
+        "genres": [genre],
         "poster": logo,
         "posterShape": "square",
         "background": logo,
@@ -185,30 +409,6 @@ def to_meta(channel, mediaflow_url, mediaflow_psw):
             "title": channel_name
         }
     }
-
-def get_channels_data():
-    """Ottiene la lista dei canali, rigenerandola solo se necessario"""
-    global channels_data_cache, channels_data_timestamp
-    current_time = time.time()
-    
-    # Se la cache è vuota o è passato troppo tempo dall'ultimo aggiornamento
-    if not channels_data_cache or (current_time - channels_data_timestamp) > 3600:  # 1 ora
-        print("Generazione lista canali...")
-        channels = load_json_file(CHANNELS_FILE, [])
-        if not channels:
-            # Se il file non esiste, usa dati di esempio
-            channels = [
-                {"id": "rai1-example", "name": "Rai 1 .I", "url": "https://example.com/rai1.m3u8", "genre": "general"},
-                {"id": "canale5-example", "name": "Canale 5 .I", "url": "https://example.com/canale5.m3u8", "genre": "general"},
-                {"id": "skysport-example", "name": "Sky Sport .I", "url": "https://example.com/skysport.m3u8", "genre": "sports"},
-                {"id": "discovery-example", "name": "Discovery Channel .I", "url": "https://example.com/discovery.m3u8", "genre": "documentary"}
-            ]
-            save_json_file(CHANNELS_FILE, channels)
-        
-        channels_data_cache = channels
-        channels_data_timestamp = current_time
-    
-    return channels_data_cache
 
 def get_all_channels(mediaflow_url, mediaflow_psw):
     """Ottiene tutti i canali con i metadati per Stremio"""
@@ -223,6 +423,30 @@ def get_all_channels(mediaflow_url, mediaflow_psw):
     ]
     
     return all_channels
+
+# Funzione per aggiornare periodicamente la lista dei canali
+def refresh_channels_periodically():
+    """Aggiorna periodicamente la lista dei canali"""
+    while True:
+        print(f"Aggiornamento canali alle {time.strftime('%H:%M:%S')}")
+        try:
+            # Genera una nuova lista m3u8
+            if generate_m3u8_list():
+                # Analizza la lista e aggiorna il file JSON
+                parse_m3u8_to_channels()
+                
+                # Invalida la cache
+                global channels_data_cache, channels_data_timestamp
+                channels_data_cache = []
+                channels_data_timestamp = 0
+                
+                # Aggiorna anche la signature di Vavoo
+                get_vavoo_signature()
+        except Exception as e:
+            print(f"Errore nell'aggiornamento dei canali: {e}")
+            
+        # Attendi 20 minuti prima del prossimo aggiornamento
+        time.sleep(20 * 60)
 
 # Crea il file del template se non esiste
 def create_index_template():
@@ -347,11 +571,11 @@ async def catalog_with_search_param(url: str, psw: str, type: str, id: str, sear
     if search_param and search_param.startswith("search="):
         search = unquote(search_param.split("=")[1])
     
-    # Filtra per categoria
-    filtered_channels = [c for c in all_channels if category in c["genres"]]
-    
-    # Filtra per ricerca
-    if search:
+    # Filtra per categoria se non è una ricerca
+    if not search:
+        filtered_channels = [c for c in all_channels if c["genres"][0] == category]
+    # Altrimenti usa la ricerca su tutti i canali
+    else:
         search = search.lower()
         filtered_channels = [c for c in all_channels if search in c["name"].lower()]
     
@@ -371,7 +595,7 @@ async def catalog_with_params(url: str, psw: str, type: str, id: str, request: R
     all_channels = get_all_channels(url, psw)
     
     # Filtra per categoria
-    filtered_channels = [c for c in all_channels if category in c["genres"]]
+    filtered_channels = [c for c in all_channels if c["genres"][0] == category]
     
     # Filtra per ricerca da query params
     if search:
@@ -394,7 +618,7 @@ async def catalog(type: str, id: str, request: Request, genre: str = None, searc
     all_channels = get_all_channels(mediaflow_url, mediaflow_psw)
     
     # Filtra per categoria
-    filtered_channels = [c for c in all_channels if category in c["genres"]]
+    filtered_channels = [c for c in all_channels if c["genres"][0] == category]
     
     # Filtra per ricerca
     if search:
@@ -480,6 +704,13 @@ async def stream(type: str, id: str, request: Request):
 if __name__ == "__main__":
     # Crea il template HTML
     create_index_template()
+    
+    # Genera la lista canali all'avvio
+    parse_m3u8_to_channels()
+    
+    # Avvia un thread per l'aggiornamento periodico
+    update_thread = threading.Thread(target=refresh_channels_periodically, daemon=True)
+    update_thread.start()
     
     # Avvia il server
     uvicorn.run(app, host="0.0.0.0", port=PORT)
