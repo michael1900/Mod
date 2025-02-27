@@ -17,4 +17,4 @@ RUN chmod +x /app/m3u8_vavoo.py
 EXPOSE 3000
 
 # Avvia l'applicazione
-CMD ["python", "server.py"]
+CMD ["python", "app.py"]
