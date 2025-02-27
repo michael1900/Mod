@@ -14,31 +14,34 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import threading
 
+# Percorsi base
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # Costanti
 PORT = int(os.environ.get('PORT', 3000))
 DOMAIN = os.environ.get('DOMAIN', 'melatv0bug.duckdns.org')  # Dominio esterno
-M3U8_GENERATOR = 'm3u8_vavoo.py'  # Script per generare la lista m3u8
-M3U8_FILE = 'channels.m3u8'  # File m3u8 generato
+M3U8_GENERATOR = os.path.join(BASE_DIR, 'm3u8_vavoo.py')  # Script per generare la lista m3u8
+M3U8_FILE = os.path.join(BASE_DIR, 'channels.m3u8')  # File m3u8 generato
 
 # Default MediaFlow settings dalle variabili d'ambiente
 DEFAULT_MEDIAFLOW_URL = os.environ.get('MEDIAFLOW_DEFAULT_URL', '')
 DEFAULT_MEDIAFLOW_PSW = os.environ.get('MEDIAFLOW_DEFAULT_PSW', '')
 
 # Percorsi file
-DATA_DIR = 'data'
+DATA_DIR = os.path.join(BASE_DIR, 'data')
 os.makedirs(DATA_DIR, exist_ok=True)
 HEADERS_FILE = os.path.join(DATA_DIR, 'headers.json')
 ICONS_FILE = os.path.join(DATA_DIR, 'channel_icons.json')
 CHANNELS_FILE = os.path.join(DATA_DIR, 'channels_data.json')
-CATEGORY_KEYWORDS_FILE = 'category_keywords.json'  # File per le categorie
+CATEGORY_KEYWORDS_FILE = os.path.join(BASE_DIR, 'category_keywords.json')  # File per le categorie
 
 # Cache per la signature di Vavoo
 vavoo_signature = None
 vavoo_signature_timestamp = 0
 
 # Inizializza cartelle necessarie
-os.makedirs("templates", exist_ok=True)
-os.makedirs("static", exist_ok=True)
+os.makedirs(os.path.join(BASE_DIR, "templates"), exist_ok=True)
+os.makedirs(os.path.join(BASE_DIR, "static"), exist_ok=True)
 
 # Inizializzazione FastAPI
 app = FastAPI()
@@ -53,10 +56,10 @@ app.add_middleware(
 )
 
 # Setup per servire file statici
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
 
 # Setup per i template
-templates = Jinja2Templates(directory="templates")
+templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 
 # Cache channels per non rigenerare la lista continuamente
 channels_data_cache = []
@@ -192,6 +195,7 @@ def get_vavoo_signature():
     if not vavoo_signature or (current_time - vavoo_signature_timestamp) > 10800:
         try:
             # Esegui lo script m3u8_vavoo.py per ottenere la signature
+            print(f"Ottenimento signature da: {M3U8_GENERATOR}")
             result = subprocess.run(['python3', M3U8_GENERATOR, '--get-signature'], 
                                   capture_output=True, text=True, check=True)
             new_signature = result.stdout.strip()
@@ -209,17 +213,32 @@ def get_vavoo_signature():
 def generate_m3u8_list():
     """Genera la lista m3u8 utilizzando lo script m3u8_vavoo.py"""
     try:
-        print("Generazione lista M3U8...")
+        print(f"Esecuzione dello script: {M3U8_GENERATOR}")
+        # Controlla se lo script esiste prima di eseguirlo
+        if not os.path.exists(M3U8_GENERATOR):
+            print(f"ERRORE: Script {M3U8_GENERATOR} non trovato!")
+            return False
+        
         result = subprocess.run(['python3', M3U8_GENERATOR], 
                               capture_output=True, text=True)
+        
+        print(f"Output dello script: {result.stdout[:100]}...")
+        print(f"Errori dello script: {result.stderr[:100]}...")
+        
         if result.returncode == 0:
-            print("Lista M3U8 generata con successo")
-            return True
+            # Verifica che il file M3U8 sia stato effettivamente creato
+            if os.path.exists(M3U8_FILE):
+                file_size = os.path.getsize(M3U8_FILE)
+                print(f"Lista M3U8 generata con successo. Dimensione file: {file_size} bytes")
+                return True
+            else:
+                print(f"ERRORE: File {M3U8_FILE} non creato dallo script")
+                return False
         else:
-            print(f"Errore nella generazione della lista M3U8: {result.stderr}")
+            print(f"ERRORE nella generazione della lista M3U8: {result.stderr}")
             return False
     except Exception as e:
-        print(f"Errore durante l'esecuzione del generatore: {e}")
+        print(f"ERRORE durante l'esecuzione del generatore: {e}")
         return False
 
 def parse_m3u8_to_channels():
@@ -451,7 +470,7 @@ def refresh_channels_periodically():
 # Crea il file del template se non esiste
 def create_index_template():
     """Crea il file del template HTML per la pagina principale"""
-    template_path = os.path.join("templates", "index.html")
+    template_path = os.path.join(BASE_DIR, "templates", "index.html")
     if not os.path.exists(template_path):
         with open(template_path, "w", encoding="utf-8") as f:
             f.write("""
@@ -540,6 +559,44 @@ async def home(request: Request):
             "domain": DOMAIN
         }
     )
+
+@app.get("/status")
+async def status():
+    """Restituisce lo stato dell'addon"""
+    # Controlla i file
+    m3u8_exists = os.path.exists(M3U8_FILE)
+    m3u8_size = os.path.getsize(M3U8_FILE) if m3u8_exists else 0
+    
+    channels_file_exists = os.path.exists(CHANNELS_FILE)
+    channels_count = len(load_json_file(CHANNELS_FILE, [])) if channels_file_exists else 0
+    
+    # Controlla le cache
+    cache_channels = len(channels_data_cache)
+    
+    # Controlla lo script
+    script_exists = os.path.exists(M3U8_GENERATOR)
+    
+    return {
+        "m3u8_file": {
+            "exists": m3u8_exists,
+            "size_bytes": m3u8_size,
+            "path": M3U8_FILE
+        },
+        "channels_file": {
+            "exists": channels_file_exists,
+            "channels_count": channels_count,
+            "path": CHANNELS_FILE
+        },
+        "cache": {
+            "channels_in_cache": cache_channels,
+            "cache_timestamp": channels_data_timestamp
+        },
+        "script": {
+            "exists": script_exists,
+            "path": M3U8_GENERATOR
+        },
+        "categories": list(get_category_keywords().keys())
+    }
 
 @app.get("/mfp/{url}/psw/{psw}/manifest.json")
 async def manifest_with_params(url: str, psw: str):
@@ -705,12 +762,20 @@ if __name__ == "__main__":
     # Crea il template HTML
     create_index_template()
     
+    print("=== Inizializzazione addon MediaFlow IPTV ===")
+    print(f"Cartella corrente: {os.getcwd()}")
+    
     # Genera la lista canali all'avvio
-    parse_m3u8_to_channels()
+    print("Generazione lista canali all'avvio...")
+    generate_m3u8_list()  # Prima genera la lista M3U8
+    channels = parse_m3u8_to_channels()  # Poi analizzala
+    print(f"Canali caricati: {len(channels)}")
     
     # Avvia un thread per l'aggiornamento periodico
+    print("Avvio thread per aggiornamento periodico...")
     update_thread = threading.Thread(target=refresh_channels_periodically, daemon=True)
     update_thread.start()
     
     # Avvia il server
+    print(f"Avvio server su porta {PORT}...")
     uvicorn.run(app, host="0.0.0.0", port=PORT)
