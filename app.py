@@ -330,7 +330,35 @@ async def manifest(request: Request):
     print(f"Manifest requested: {mediaflow_url}, {mediaflow_psw}")
     return create_manifest(mediaflow_url, mediaflow_psw)
 
-# Aggiunto supporto per il formato di percorso che Stremio usa
+# Gestisce il formato con il parametro di ricerca nell'URL (search%3Dtv.json)
+@app.get("/mfp/{url}/psw/{psw}/catalog/{type}/{id}/{search_param}.json")
+async def catalog_with_search_param(url: str, psw: str, type: str, id: str, search_param: str):
+    """Catalogo dei canali con parametri nel path e ricerca"""
+    print(f"Catalog requested with search param: {type}, {id}, search={search_param}, url={url}, psw={psw}")
+    
+    if type != "tv" or not id.startswith("mediaflow-"):
+        return {"metas": []}
+    
+    category = id.split("-")[1]
+    all_channels = get_all_channels(url, psw)
+    
+    # Estrai il termine di ricerca dal parametro
+    search = None
+    if search_param and search_param.startswith("search="):
+        search = unquote(search_param.split("=")[1])
+    
+    # Filtra per categoria
+    filtered_channels = [c for c in all_channels if category in c["genres"]]
+    
+    # Filtra per ricerca
+    if search:
+        search = search.lower()
+        filtered_channels = [c for c in all_channels if search in c["name"].lower()]
+    
+    print(f"Serving catalog with search for {category} with {len(filtered_channels)} channels")
+    return {"metas": filtered_channels}
+
+# Gestisce il formato standard del catalogo
 @app.get("/mfp/{url}/psw/{psw}/catalog/{type}/{id}.json")
 async def catalog_with_params(url: str, psw: str, type: str, id: str, request: Request, genre: str = None, search: str = None):
     """Catalogo dei canali con parametri nel path"""
@@ -345,7 +373,7 @@ async def catalog_with_params(url: str, psw: str, type: str, id: str, request: R
     # Filtra per categoria
     filtered_channels = [c for c in all_channels if category in c["genres"]]
     
-    # Filtra per ricerca
+    # Filtra per ricerca da query params
     if search:
         search = search.lower()
         filtered_channels = [c for c in all_channels if search in c["name"].lower()]
