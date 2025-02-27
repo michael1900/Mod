@@ -1,17 +1,20 @@
-FROM python:3.10-slim
+# Usa un'immagine Python leggera
+FROM python:3.9-slim
 
+# Imposta la directory di lavoro
 WORKDIR /app
 
+# Copia i file necessari nel container
+COPY . /app
+
 # Installa le dipendenze
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir fastapi uvicorn jinja2
 
-# Copia i file dell'applicazione
-COPY app.py .
-COPY *.json ./
+# Assicura che i file di script siano eseguibili
+RUN chmod +x /app/m3u8_vavoo.py
 
-# Espone la porta
+# Espone la porta 3000 per FastAPI
 EXPOSE 3000
 
 # Avvia l'applicazione
-CMD ["python", "app.py"]
+CMD ["python", "server.py"]
