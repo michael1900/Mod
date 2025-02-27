@@ -1,0 +1,73 @@
+{
+    "SKY": [
+        "sky cin", 
+        "tv 8", 
+        "fox", 
+        "comedy central", 
+        "animal planet", 
+        "nat geo", 
+        "tv8", 
+        "sky atl", 
+        "sky uno", 
+        "sky prima", 
+        "sky serie", 
+        "sky arte", 
+        "sky docum", 
+        "sky natu", 
+        "cielo", 
+        "history", 
+        "sky tg"
+    ],
+    "RAI": [
+        "rai"
+    ],
+    "MEDIASET": [
+        "mediaset", 
+        "canale 5", 
+        "rete 4", 
+        "italia", 
+        "focus", 
+        "tg com 24", 
+        "tgcom 24", 
+        "premium crime", 
+        "iris", 
+        "mediaset iris", 
+        "cine 34", 
+        "27 twenty seven", 
+        "27 twentyseven"
+    ],
+    "DISCOVERY": [
+        "discovery", 
+        "real time", 
+        "investigation", 
+        "top crime", 
+        "wwe", 
+        "hgtv", 
+        "nove", 
+        "dmax", 
+        "food network", 
+        "warner tv"
+    ],
+    "SPORT": [
+        "sport", 
+        "dazn", 
+        "tennis", 
+        "moto", 
+        "f1", 
+        "golf", 
+        "sportitalia", 
+        "sport italia", 
+        "solo calcio", 
+        "solocalcio"
+    ],
+    "ALTRI": [],
+    "BAMBINI": [
+        "boing", 
+        "cartoon", 
+        "k2", 
+        "discovery k2", 
+        "nick", 
+        "super", 
+        "frisbee"
+    ]
+}
