@@ -8,10 +8,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copia i file dell'applicazione
 COPY app.py .
-COPY headers.json channel_icons.json ./
-
-# Crea le directory necessarie
-RUN mkdir -p templates static
+COPY *.json ./
 
 # Espone la porta
 EXPOSE 3000
