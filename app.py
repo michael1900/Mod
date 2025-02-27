@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 # Costanti
@@ -41,6 +42,15 @@ os.makedirs("static", exist_ok=True)
 
 # Inizializzazione FastAPI
 app = FastAPI()
+
+# Abilita CORS per tutte le origini
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Setup per servire file statici
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -93,10 +103,10 @@ def extract_url_params(request: Request):
     mediaflow_url = DEFAULT_MEDIAFLOW_URL
     mediaflow_psw = DEFAULT_MEDIAFLOW_PSW
     
-    # Verifica se il percorso contiene i parametri mfp e psw
-    if "/mfp/" in path and "/psw/" in path:
-        try:
-            # Estrai i parametri dal path
+    # Ottieni i parametri dall'URL
+    try:
+        # Cerca i parametri nel path
+        if "/mfp/" in path and "/psw/" in path:
             parts = path.split("/")
             mfp_index = parts.index("mfp")
             psw_index = parts.index("psw")
@@ -104,8 +114,9 @@ def extract_url_params(request: Request):
             if mfp_index < len(parts) - 1 and psw_index < len(parts) - 1:
                 mediaflow_url = unquote(parts[mfp_index + 1])
                 mediaflow_psw = unquote(parts[psw_index + 1])
-        except (ValueError, IndexError) as e:
-            print(f"Errore nell'estrazione dei parametri dall'URL: {e}")
+                print(f"Extracted from path: {mediaflow_url}, {mediaflow_psw}")
+    except (ValueError, IndexError) as e:
+        print(f"Errore nell'estrazione dei parametri dall'URL: {e}")
     
     return mediaflow_url, mediaflow_psw
 
@@ -127,7 +138,10 @@ def create_manifest(mediaflow_url, mediaflow_psw):
             } for genre in AVAILABLE_GENRES
         ],
         "idPrefixes": ["mediaflow-"],
-        "behaviorHints": {"configurable": False, "configurationRequired": False},
+        "behaviorHints": { 
+            "configurable": False,
+            "configurationRequired": False
+        },
         "logo": "https://dl.strem.io/addon-logo.png",
         "icon": "https://dl.strem.io/addon-logo.png",
         "background": "https://dl.strem.io/addon-background.jpg",
@@ -184,10 +198,10 @@ def get_channels_data():
         if not channels:
             # Se il file non esiste, usa dati di esempio
             channels = [
-                {"id": generate_id("Rai 1"), "name": "Rai 1 .I", "url": "https://example.com/rai1.m3u8", "genre": "general"},
-                {"id": generate_id("Canale 5"), "name": "Canale 5 .I", "url": "https://example.com/canale5.m3u8", "genre": "general"},
-                {"id": generate_id("Sky Sport"), "name": "Sky Sport .I", "url": "https://example.com/skysport.m3u8", "genre": "sports"},
-                {"id": generate_id("Discovery Channel"), "name": "Discovery Channel .I", "url": "https://example.com/discovery.m3u8", "genre": "documentary"}
+                {"id": "rai1-example", "name": "Rai 1 .I", "url": "https://example.com/rai1.m3u8", "genre": "general"},
+                {"id": "canale5-example", "name": "Canale 5 .I", "url": "https://example.com/canale5.m3u8", "genre": "general"},
+                {"id": "skysport-example", "name": "Sky Sport .I", "url": "https://example.com/skysport.m3u8", "genre": "sports"},
+                {"id": "discovery-example", "name": "Discovery Channel .I", "url": "https://example.com/discovery.m3u8", "genre": "documentary"}
             ]
             save_json_file(CHANNELS_FILE, channels)
         
@@ -276,6 +290,7 @@ def create_index_template():
             const encodedUrl = encodeURIComponent(mfpUrl);
             const encodedPsw = encodeURIComponent(mfpPsw);
             
+            // Usa il formato del percorso URL che Stremio si aspetta
             const stremioLink = `stremio://${domain}/mfp/${encodedUrl}/psw/${encodedPsw}/manifest.json`;
             
             document.getElementById('stremioLink').href = stremioLink;
@@ -305,17 +320,44 @@ async def home(request: Request):
 @app.get("/mfp/{url}/psw/{psw}/manifest.json")
 async def manifest_with_params(url: str, psw: str):
     """Manifest con parametri inclusi nell'URL"""
+    print(f"Manifest requested with URL params: {url}, {psw}")
     return create_manifest(url, psw)
 
 @app.get("/manifest.json")
 async def manifest(request: Request):
     """Manifest dell'addon"""
     mediaflow_url, mediaflow_psw = extract_url_params(request)
+    print(f"Manifest requested: {mediaflow_url}, {mediaflow_psw}")
     return create_manifest(mediaflow_url, mediaflow_psw)
+
+# Aggiunto supporto per il formato di percorso che Stremio usa
+@app.get("/mfp/{url}/psw/{psw}/catalog/{type}/{id}.json")
+async def catalog_with_params(url: str, psw: str, type: str, id: str, request: Request, genre: str = None, search: str = None):
+    """Catalogo dei canali con parametri nel path"""
+    print(f"Catalog requested with path params: {type}, {id}, url={url}, psw={psw}")
+    
+    if type != "tv" or not id.startswith("mediaflow-"):
+        return {"metas": []}
+    
+    category = id.split("-")[1]
+    all_channels = get_all_channels(url, psw)
+    
+    # Filtra per categoria
+    filtered_channels = [c for c in all_channels if category in c["genres"]]
+    
+    # Filtra per ricerca
+    if search:
+        search = search.lower()
+        filtered_channels = [c for c in all_channels if search in c["name"].lower()]
+    
+    print(f"Serving catalog for {category} with {len(filtered_channels)} channels")
+    return {"metas": filtered_channels}
 
 @app.get("/catalog/{type}/{id}.json")
 async def catalog(type: str, id: str, request: Request, genre: str = None, search: str = None):
     """Catalogo dei canali"""
+    print(f"Catalog requested: {type}, {id}")
+    
     if type != "tv" or not id.startswith("mediaflow-"):
         return {"metas": []}
     
@@ -334,9 +376,28 @@ async def catalog(type: str, id: str, request: Request, genre: str = None, searc
     print(f"Serving catalog for {category} with {len(filtered_channels)} channels")
     return {"metas": filtered_channels}
 
+# Aggiunto supporto per il formato di percorso che Stremio usa per i metadati
+@app.get("/mfp/{url}/psw/{psw}/meta/{type}/{id}.json")
+async def meta_with_params(url: str, psw: str, type: str, id: str):
+    """Metadati del canale con parametri nel path"""
+    print(f"Meta requested with path params: {type}, {id}, url={url}, psw={psw}")
+    
+    if type != "tv" or not id.startswith("mediaflow-"):
+        return {"meta": {}}
+    
+    all_channels = get_all_channels(url, psw)
+    channel = next((c for c in all_channels if c["id"] == id), None)
+    
+    if channel:
+        return {"meta": channel}
+    else:
+        return {"meta": {}}
+
 @app.get("/meta/{type}/{id}.json")
 async def meta(type: str, id: str, request: Request):
     """Metadati del canale"""
+    print(f"Meta requested: {type}, {id}")
+    
     if type != "tv" or not id.startswith("mediaflow-"):
         return {"meta": {}}
     
@@ -349,9 +410,30 @@ async def meta(type: str, id: str, request: Request):
     else:
         return {"meta": {}}
 
+# Aggiunto supporto per il formato di percorso che Stremio usa per gli stream
+@app.get("/mfp/{url}/psw/{psw}/stream/{type}/{id}.json")
+async def stream_with_params(url: str, psw: str, type: str, id: str):
+    """Stream del canale con parametri nel path"""
+    print(f"Stream requested with path params: {type}, {id}, url={url}, psw={psw}")
+    
+    if type != "tv" or not id.startswith("mediaflow-"):
+        return {"streams": []}
+    
+    all_channels = get_all_channels(url, psw)
+    channel = next((c for c in all_channels if c["id"] == id), None)
+    
+    if channel and "streamInfo" in channel:
+        print(f"Serving stream id: {channel['id']}")
+        return {"streams": [channel["streamInfo"]]}
+    else:
+        print(f"No matching stream found for channelID: {id}")
+        return {"streams": []}
+
 @app.get("/stream/{type}/{id}.json")
 async def stream(type: str, id: str, request: Request):
     """Stream del canale"""
+    print(f"Stream requested: {type}, {id}")
+    
     if type != "tv" or not id.startswith("mediaflow-"):
         return {"streams": []}
     
