@@ -1,87 +1,203 @@
-{
-  "headers": {
-    "user-agent": "okhttp/4.11.0",
-    "accept": "application/json",
-    "content-type": "application/json; charset=utf-8",
-    "content-length": "1106",
-    "accept-encoding": "gzip"
-  },
-  "signature_request": {
-    "token": "8Us2TfjeOFrzqFFTEjL3E5KfdAWGa5PV3wQe60uK4BmzlkJRMYFu0ufaM_eeDXKS2U04XUuhbDTgGRJrJARUwzDyCcRToXhW5AcDekfFMfwNUjuieeQ1uzeDB9YWyBL2cn5Al3L3gTnF8Vk1t7rPwkBob0swvxA",
-    "reason": "player.enter",
-    "locale": "de",
-    "theme": "dark",
-    "metadata": {
-      "device": {
-        "type": "Handset",
-        "brand": "google",
-        "model": "Nexus 5",
-        "name": "21081111RG",
-        "uniqueId": "d10e5d99ab665233"
-      },
-      "os": {
-        "name": "android",
-        "version": "7.1.2",
-        "abis": ["arm64-v8a", "armeabi-v7a", "armeabi"],
-        "host": "android"
-      },
-      "app": {
-        "platform": "android",
-        "version": "3.0.2",
-        "buildId": "288045000",
-        "engine": "jsc",
-        "signatures": ["09f4e07040149486e541a1cb34000b6e12527265252fa2178dfe2bd1af6b815a"],
-        "installer": "com.android.secex"
-      }
-    },
-    "version": {
-      "package": "tv.vavoo.app",
-      "binary": "3.0.2",
-      "js": "3.1.4"
+#!/usr/bin/env python3
+import json
+import os
+import re
+import time
+import random
+import threading
+from urllib.parse import urlencode, quote_plus
+from fastapi import FastAPI, Request, Form, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+import uvicorn
+
+# Costanti
+PORT = int(os.environ.get('PORT', 3000))
+FETCH_INTERVAL = 20 * 60  # 20 minuti in secondi
+FETCH_TIMEOUT = 10  # 10 secondi
+
+# Percorsi file
+CONFIG_FILE = 'config.json'
+HEADERS_FILE = 'headers.json'
+GENRE_FILE = 'genres.json'
+ICONS_FILE = 'channel_icons.json'
+CHANNELS_FILE = 'channels_data.json'
+SAMPLE_CHANNELS_FILE = 'sample_channels.json'
+
+# Generi disponibili
+AVAILABLE_GENRES = [
+    "animation", "business", "classic", "comedy", "cooking", "culture", 
+    "documentary", "education", "entertainment", "family", "kids", 
+    "legislative", "lifestyle", "movies", "music", "general", "religious", 
+    "news", "outdoor", "relax", "series", "science", "shop", "sports", 
+    "travel", "weather", "xxx", "auto"
+]
+
+# Inizializza cartelle necessarie
+os.makedirs("templates", exist_ok=True)
+os.makedirs("static", exist_ok=True)
+
+# Inizializzazione FastAPI
+app = FastAPI()
+
+# Setup per servire file statici
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Setup per i template
+templates = Jinja2Templates(directory="templates")
+
+# Cache in memoria
+channel_cache = {}
+
+def load_json_file(filename, default=None):
+    """Carica un file JSON, ritorna default se il file non esiste o non è valido"""
+    try:
+        if os.path.exists(filename):
+            with open(filename, 'r', encoding='utf-8') as file:
+                return json.load(file)
+    except Exception as e:
+        print(f"Errore nel caricamento di {filename}: {e}")
+    return default if default is not None else {}
+
+def save_json_file(filename, data):
+    """Salva i dati in un file JSON"""
+    try:
+        with open(filename, 'w', encoding='utf-8') as file:
+            json.dump(data, file, indent=2, ensure_ascii=False)
+        return True
+    except Exception as e:
+        print(f"Errore nel salvataggio di {filename}: {e}")
+        return False
+
+def clean_channel_name(name):
+    """Pulisce il nome del canale rimuovendo gli ultimi 3 caratteri se sono uno spazio, un punto e una lettera"""
+    if len(name) > 3:
+        last_three = name[-3:]
+        if re.match(r'\s\.[A-Za-z]', last_three):
+            return name[:-3]
+    return name
+
+def generate_id(name):
+    """Genera un ID unico basato sul nome del canale"""
+    clean_name = re.sub(r'[^a-zA-Z0-9]', '', clean_channel_name(name).lower())
+    return f"{clean_name}-{int(time.time())}-{random.randint(1000, 9999)}"
+
+def assign_genre(channel_name, genre_mapping):
+    """Assegna un genere al canale in base al nome o al mapping"""
+    clean_name = clean_channel_name(channel_name).lower()
+    
+    # Controllo diretto nel mapping
+    if clean_name in genre_mapping:
+        return genre_mapping[clean_name]
+    
+    # Ricerca per parole chiave
+    keywords = {
+        "sport": "sports",
+        "calcio": "sports",
+        "football": "sports",
+        "news": "news",
+        "notizie": "news",
+        "tg": "news",
+        "film": "movies",
+        "cinema": "movies",
+        "movie": "movies",
+        "bambini": "kids",
+        "kids": "kids",
+        "cartoni": "animation",
+        "documentari": "documentary",
+        "doc": "documentary",
+        "musica": "music",
+        "music": "music",
+        "comedy": "comedy",
+        "commedia": "comedy",
+        "lifestyle": "lifestyle",
+        "cucina": "cooking",
+        "food": "cooking",
+        "meteo": "weather",
+        "weather": "weather",
+        "viaggi": "travel",
+        "travel": "travel",
+        "serie": "series",
+        "auto": "auto",
+        "motor": "auto",
+        "xxx": "xxx",
+        "adult": "xxx",
     }
-  },
-  "channel_filters": [
-    "sky", "fox", "rai", "cine34", "real time", "crime+ investigation", "top crime", "wwe", "tennis", "k2",
-    "inter", "rsi", "la 7", "la7", "la 7d", "la7d", "27 twentyseven", "premium crime", "comedy central", "super!",
-    "animal planet", "hgtv", "avengers grimm channel", "catfish", "rakuten", "nickelodeon", "cartoonito", "nick jr",
-    "history", "nat geo", "tv8", "canale 5", "italia", "mediaset", "rete 4", "focus", "iris", "discovery", "dazn",
-    "cine 34", "la 5", "giallo", "dmax", "cielo", "eurosport", "disney+", "food", "tv 8", "mototrend",
-    "boing", "frisbee", "deejay tv", "cartoon network", "tg com 24", "warner tv", "boing plus",
-    "27 twenty seven", "tgcom 24", "sky uno"
-  ],
-  "channel_remove": [
-    "maria+vision", "telepace", "uninettuno", "lombardia", "cusano", "FM italia", "Juwelo",
-    "kiss kiss", "qvc", "rete tv", "italia 3", "fishing", "inter tv", "avengers"
-  ],
-  "category_keywords": {
-    "SKY": ["sky cin", "tv 8", "fox", "comedy central", "animal planet", "nat geo", "tv8", "sky atl", "sky uno", "sky prima", "sky serie", "sky arte", "sky docum", "sky natu", "cielo", "history", "sky tg"],
-    "RAI": ["rai"],
-    "MEDIASET": ["mediaset", "canale 5", "rete 4", "italia", "focus", "tg com 24", "tgcom 24", "premium crime", "iris", "mediaset iris", "cine 34", "27 twenty seven", "27 twentyseven"],
-    "DISCOVERY": ["discovery", "real time", "investigation", "top crime", "wwe", "hgtv", "nove", "dmax", "food network", "warner tv"],
-    "SPORT": ["sport", "dazn", "tennis", "moto", "f1", "golf", "sportitalia", "sport italia", "solo calcio", "solocalcio"],
-    "BAMBINI": ["boing", "cartoon", "k2", "discovery k2", "nick", "super", "frisbee"],
-    "ALTRI": []
-  },
-  "m3u_options": {
-    "user_agent": "okhttp/4.11.0",
-    "origin": "https://vavoo.to/",
-    "referrer": "https://vavoo.to/",
-    "epg_url": "http://epg-guide.com/it.gz"
-  },
-  "api_endpoints": {
-    "channel_list": "https://vavoo.to/vto-cluster/mediahubmx-catalog.json",
-    "resolve_link": "https://vavoo.to/vto-cluster/mediahubmx-resolve.json"
-  },
-  "channel_request": {
-    "language": "de",
-    "region": "AT",
-    "catalogId": "vto-iptv",
-    "id": "vto-iptv",
-    "adult": false,
-    "search": "",
-    "sort": "name",
-    "filter": {"group": "Italy"},
-    "cursor": 0,
-    "clientVersion": "3.0.2"
-  }
-}
+    
+    for keyword, genre in keywords.items():
+        if keyword in clean_name:
+            return genre
+    
+    # Default genre
+    return "general"
+
+def create_manifest(mediaflow_url, mediaflow_psw):
+    """Crea il manifest dell'addon con i parametri personalizzati"""
+    return {
+        "id": "org.mediaflow.iptv",
+        "name": "MediaFlow IPTV",
+        "version": "1.0.0",
+        "description": "Watch IPTV channels from MediaFlow service",
+        "resources": ["catalog", "meta", "stream"],
+        "types": ["tv"],
+        "catalogs": [
+            {
+                "type": "tv",
+                "id": f"mediaflow-{genre}",
+                "name": f"MediaFlow - {genre.capitalize()}",
+                "extra": [{"name": "search", "isRequired": False}]
+            } for genre in AVAILABLE_GENRES
+        ],
+        "idPrefixes": ["mediaflow-"],
+        "behaviorHints": {"configurable": False, "configurationRequired": False},
+        "logo": "https://dl.strem.io/addon-logo.png",
+        "icon": "https://dl.strem.io/addon-logo.png",
+        "background": "https://dl.strem.io/addon-background.jpg",
+    }
+
+def save_config(mediaflow_url, mediaflow_psw):
+    """Salva la configurazione dell'utente"""
+    config = {"mediaflow_url": mediaflow_url, "mediaflow_psw": mediaflow_psw}
+    return save_json_file(CONFIG_FILE, config)
+
+def load_config():
+    """Carica la configurazione dell'utente"""
+    return load_json_file(CONFIG_FILE, {"mediaflow_url": "", "mediaflow_psw": ""})
+
+def to_meta(channel, mediaflow_url, mediaflow_psw):
+    """Converte un canale in un oggetto meta formato Stremio"""
+    icons = load_json_file(ICONS_FILE, {})
+    channel_name = clean_channel_name(channel["name"])
+    logo = icons.get(channel_name, icons.get(channel["name"], "https://dl.strem.io/addon-logo.png"))
+    
+    # Prepara l'URL per lo streaming attraverso MediaFlow Proxy
+    headers = {
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+        "referer": "https://vavoo.to/",
+        "origin": "https://vavoo.to"
+    }
+    
+    params = {
+        "api_password": mediaflow_psw,
+        "d": channel["url"]
+    }
+    
+    # Aggiungi headers alla query string
+    for key, value in headers.items():
+        params[f"h_{key}"] = value
+    
+    stream_url = f"https://{mediaflow_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
+    
+    return {
+        "id": f"mediaflow-{channel['id']}",
+        "name": channel_name,
+        "type": "tv",
+        "genres": [channel.get("genre", "general")],
+        "poster": logo,
+        "posterShape": "square",
+        "background": logo,
+        "logo": logo,
+        "streamInfo": {
+            "url": stream_url,
+            "title": channel_name
