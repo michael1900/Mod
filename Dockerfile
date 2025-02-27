@@ -7,11 +7,11 @@ WORKDIR /app
 # Copia i file necessari nel container
 COPY . /app
 
-# Installa le dipendenze
-RUN pip install --no-cache-dir fastapi uvicorn jinja2
+# Installa le dipendenze da requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
 
-# Assicura che i file di script siano eseguibili
-RUN chmod +x /app/m3u8_vavoo.py
+# Assicura i permessi di scrittura per tutti sulla cartella /app
+RUN chmod -R 777 /app
 
 # Espone la porta 3000 per FastAPI
 EXPOSE 3000
