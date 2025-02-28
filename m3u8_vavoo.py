@@ -43,21 +43,22 @@ def get_category(channel_name, category_keywords):
             return category
     return "ALTRI"
 
-def normalize_channel_name(channel_name):
+def normalize_channel_name(channel_name, remove_last_chars=True):
     # Rimuovi il suffisso .c o .s e fai lo strip
     clean_name = re.sub(r"\.[cs]$", "", channel_name, flags=re.IGNORECASE).strip()
-    # Rimuovi gli ultimi 3 caratteri se il nome è abbastanza lungo
-    if len(clean_name) > 3:
+    # Rimuovi gli ultimi 3 caratteri solo se richiesto e se il nome è abbastanza lungo
+    if remove_last_chars and len(clean_name) > 3:
         clean_name = clean_name[:-3]
     return clean_name.lower()
 
 def get_logo_url(channel_name, channel_logos):
     # Normalizza il nome del canale rimuovendo suffisso e ultimi 3 caratteri
-    normalized_name = normalize_channel_name(channel_name)
+    normalized_name = normalize_channel_name(channel_name, remove_last_chars=True)
     
     # Cerca nel dizionario usando i nomi normalizzati
+    # Per le chiavi del dizionario, rimuovi solo il suffisso .c o .s ma NON gli ultimi 3 caratteri
     for logo_channel, logo_url in channel_logos.items():
-        normalized_logo_channel = normalize_channel_name(logo_channel)
+        normalized_logo_channel = normalize_channel_name(logo_channel, remove_last_chars=False)
         if normalized_name == normalized_logo_channel:
             return logo_url
     
