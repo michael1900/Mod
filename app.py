@@ -426,7 +426,7 @@ def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
             stremio_headers["mediahubmx-signature"] = signature
             
             # Aggiungi user-agent di Google Nexus (Android)
-            stremio_headers["user-agent"] = "Mozilla/5.0 (Linux; Android 10; Nexus 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.101 Mobile Safari/537.36"
+            stremio_headers["user-agent"] = "Mozilla/5.0 (iPhone; CPU iPhone OS 14_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/33.0 Mobile/15E148 Safari/605.1.15"
             
             # Crea l'URL finale per MediaFlow con l'URL risolto
             params = {
