@@ -51,17 +51,40 @@ def get_logo_url(channel_name, channel_logos):
     # Normalizza il nome del canale rimuovendo solo il suffisso " .c" o " .s"
     normalized_name = normalize_channel_name(channel_name)
     
+    print(f"DEBUG - Cercando logo per: '{channel_name}' → normalizzato a: '{normalized_name}'")
+    
+    # Mostra i primi 5 elementi del dizionario per debug
+    logo_count = min(5, len(channel_logos))
+    debug_logos = list(channel_logos.items())[:logo_count]
+    print(f"DEBUG - Primi {logo_count} elementi nel dizionario dei loghi:")
+    for logo_key, logo_value in debug_logos:
+        normalized_logo = normalize_channel_name(logo_key)
+        print(f"DEBUG - Logo: '{logo_key}' → normalizzato: '{normalized_logo}' → URL: '{logo_value}'")
+    
+    # Contatore per tenere traccia dei confronti fatti
+    debug_count = 0
+    found_logo = False
+    
     # Cerca nel dizionario usando i nomi normalizzati
     for logo_channel, logo_url in channel_logos.items():
         normalized_logo_channel = normalize_channel_name(logo_channel)
+        debug_count += 1
+        
         if normalized_name == normalized_logo_channel:
+            print(f"DEBUG - TROVATO! '{normalized_name}' corrisponde a '{normalized_logo_channel}'")
+            found_logo = True
             return logo_url
+    
+    if not found_logo:
+        print(f"DEBUG - Nessuna corrispondenza trovata dopo {debug_count} confronti")
     
     # Genera URL placeholder se non esiste un logo
     clean_name = re.sub(r"\s+\.[cs]$", "", channel_name, flags=re.IGNORECASE).strip()
     # Sostituisci spazi con + per l'URL
     formatted_name = clean_name.replace(" ", "+")
-    return f"https://placehold.co/400x400?text={formatted_name}&.png"
+    placeholder_url = f"https://placehold.co/400x400?text={formatted_name}&.png"
+    print(f"DEBUG - Generato URL placeholder: {placeholder_url}")
+    return placeholder_url
     
     # Genera URL placeholder se non esiste un logo
     clean_name = re.sub(r"\.[cs]$", "", channel_name, flags=re.IGNORECASE).strip()
@@ -124,6 +147,14 @@ def generate_m3u(channels_json, signature, channel_filters, channel_remove, cate
         return
 
     print(f"Generating M3U8 file with {len(items)} channels...")
+    print(f"DEBUG - Numero di loghi disponibili: {len(channel_logos)}")
+    
+    # Mostra un campione dei loghi disponibili
+    sample_count = min(3, len(channel_logos))
+    print(f"DEBUG - Campione di {sample_count} loghi:")
+    sample_logos = list(channel_logos.items())[:sample_count]
+    for logo_key, logo_url in sample_logos:
+        print(f"DEBUG - '{logo_key}': '{logo_url}'")
 
     with open(filename, "w", encoding="utf-8") as f:
         f.write('#EXTM3U url-tvg="http://epg-guide.com/it.gz"\n')
