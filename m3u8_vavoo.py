@@ -70,6 +70,15 @@ def get_logo_url(channel_name, channel_logos):
     # Sostituisci spazi con + per l'URL
     formatted_name = clean_name.replace(" ", "+")
     return f"https://placehold.co/400x400?text={formatted_name}&.png"
+    
+    # Genera URL placeholder se non esiste un logo
+    clean_name = re.sub(r"\.[cs]$", "", channel_name, flags=re.IGNORECASE).strip()
+    # Rimuovi gli ultimi 3 caratteri come richiesto
+    if len(clean_name) > 3:
+        clean_name = clean_name[:-3]
+    # Sostituisci spazi con + per l'URL
+    formatted_name = clean_name.replace(" ", "+")
+    return f"https://placehold.co/400x400?text={formatted_name}&.png"
 
 def get_channel_list(signature, group="Italy"):
     headers = {
@@ -133,7 +142,9 @@ def generate_m3u(channels_json, signature, channel_filters, channel_remove, cate
                 print(f"Skipping channel {name} (in CHANNEL_REMOVE)")
                 continue
 
-            if not any(filter_word.lower() in name.lower() for filter_word in channel_filters):
+            # Se channel_filters è vuoto, includi tutti i canali
+            # Altrimenti, includi solo quelli che corrispondono ai filtri
+            if channel_filters and not any(filter_word.lower() in name.lower() for filter_word in channel_filters):
                 logging.info(f"Excluded channel: {name}")
                 continue
 
