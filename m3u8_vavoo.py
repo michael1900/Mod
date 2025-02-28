@@ -53,38 +53,25 @@ def get_logo_url(channel_name, channel_logos):
     
     print(f"DEBUG - Cercando logo per: '{channel_name}' → normalizzato a: '{normalized_name}'")
     
-    # Mostra i primi 5 elementi del dizionario per debug
-    logo_count = min(5, len(channel_logos))
-    debug_logos = list(channel_logos.items())[:logo_count]
-    print(f"DEBUG - Primi {logo_count} elementi nel dizionario dei loghi:")
-    for logo_key, logo_value in debug_logos:
-        normalized_logo = normalize_channel_name(logo_key)
-        print(f"DEBUG - Logo: '{logo_key}' → normalizzato: '{normalized_logo}' → URL: '{logo_value}'")
-    
-    # Contatore per tenere traccia dei confronti fatti
-    debug_count = 0
-    found_logo = False
-    
     # Cerca nel dizionario usando i nomi normalizzati
     for logo_channel, logo_url in channel_logos.items():
         normalized_logo_channel = normalize_channel_name(logo_channel)
-        debug_count += 1
         
+        # Prova corrispondenza esatta
         if normalized_name == normalized_logo_channel:
-            print(f"DEBUG - TROVATO! '{normalized_name}' corrisponde a '{normalized_logo_channel}'")
-            found_logo = True
+            print(f"DEBUG - TROVATO! Corrispondenza esatta: '{normalized_name}' = '{normalized_logo_channel}'")
             return logo_url
-    
-    if not found_logo:
-        print(f"DEBUG - Nessuna corrispondenza trovata dopo {debug_count} confronti")
+        
+        # Prova corrispondenza parziale (se il nome logo è contenuto nel nome canale o viceversa)
+        if normalized_name in normalized_logo_channel or normalized_logo_channel in normalized_name:
+            print(f"DEBUG - TROVATO! Corrispondenza parziale: '{normalized_name}' ↔ '{normalized_logo_channel}'")
+            return logo_url
     
     # Genera URL placeholder se non esiste un logo
     clean_name = re.sub(r"\s+\.[cs]$", "", channel_name, flags=re.IGNORECASE).strip()
     # Sostituisci spazi con + per l'URL
     formatted_name = clean_name.replace(" ", "+")
-    placeholder_url = f"https://placehold.co/400x400?text={formatted_name}&.png"
-    print(f"DEBUG - Generato URL placeholder: {placeholder_url}")
-    return placeholder_url
+    return f"https://placehold.co/400x400?text={formatted_name}&.png"
     
     # Genera URL placeholder se non esiste un logo
     clean_name = re.sub(r"\.[cs]$", "", channel_name, flags=re.IGNORECASE).strip()
