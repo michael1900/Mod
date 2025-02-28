@@ -426,7 +426,7 @@ def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
             stremio_headers["mediahubmx-signature"] = signature
             
             # Aggiungi user-agent di Google Nexus (Android)
-            stremio_headers["user-agent"] = "Mozilla/5.0 (iPhone; CPU iPhone OS 14_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/33.0 Mobile/15E148 Safari/605.1.15"
+            stremio_headers["user-agent"] = "Mozilla/5.0 (Linux; Android 10; Nexus 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.101 Mobile Safari/537.36"
             
             # Crea l'URL finale per MediaFlow con l'URL risolto
             params = {
@@ -471,7 +471,7 @@ def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
         stremio_headers = headers.copy()
         
         # Aggiungi user-agent di Google Nexus (Android)
-        stremio_headers["user-agent"] = "Mozilla/5.0 (Linux; Android 10; Nexus 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.101 Mobile Safari/537.36"
+        stremio_headers["user-agent"] = "Mozilla/5.0 (Linux; Android 10; Nexus 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.101 Mobile/15E148 Safari/537.36"
         
         resolved_url = stream_url
     
@@ -485,25 +485,23 @@ def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
     ]
     
     # Aggiungi lo stream diretto se è stato risolto
-if resolved_url:
-    direct_stream = {
-        "url": resolved_url,
-        "title": f"{channel_name} (Diretto iPhone)",
-        "name": "Diretto iPhone"
-    }
-    
-    # Aggiungi gli headers se presenti
-    if stremio_headers:
-        # Usa l'user agent di iPhone
-        stremio_headers["user-agent"] = "Mozilla/5.0 (iPhone; CPU iPhone OS 14_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/33.0 Mobile/15E148 Safari/605.1.15"
+    if resolved_url:
+        direct_stream = {
+            "url": resolved_url,
+            "title": f"{channel_name} (Diretto iPhone)",
+            "name": "Diretto iPhone"
+        }
         
-        # Assicurati che origin e referer siano impostati correttamente
-        stremio_headers["referer"] = "https://vavoo.to/"
-        stremio_headers["origin"] = "https://vavoo.to/"
+        # Aggiungi gli headers se presenti
+        if stremio_headers:
+            # Modifico gli headers per il secondo stream con quelli iPhone
+            stremio_headers["user-agent"] = "Mozilla/5.0 (iPhone; CPU iPhone OS 14_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/33.0 Mobile/15E148 Safari/605.1.15"
+            stremio_headers["referer"] = "https://vavoo.to/"
+            stremio_headers["origin"] = "https://vavoo.to/"
+            
+            direct_stream["headers"] = stremio_headers
         
-        direct_stream["headers"] = stremio_headers
-    
-    streams.append(direct_stream)
+        streams.append(direct_stream)
     
     return streams
 
