@@ -423,44 +423,40 @@ def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
         signature = get_vavoo_signature()
         
         if signature:
-            # Risolvi l'URL se necessario
+            # Risolvi l'URL utilizzando lo script resolver.py
             if "localhost" not in stream_url:
                 try:
-                    print(f"Tentativo di risoluzione URL per lo stream di {channel_name}")
-                    # Implementazione diretta della risoluzione URL
-                    headers_resolve = {
-                        "user-agent": "MediaHubMX/2",
-                        "accept": "application/json",
-                        "content-type": "application/json; charset=utf-8",
-                        "accept-encoding": "gzip",
-                        "mediahubmx-signature": signature
-                    }
+                    RESOLVER_SCRIPT = os.path.join(BASE_DIR, 'resolver.py')
                     
-                    data_resolve = {
-                        "language": "de",
-                        "region": "AT",
-                        "url": stream_url,
-                        "clientVersion": "3.0.2"
-                    }
-                    
-                    response = requests.post(
-                        "https://vavoo.to/vto-cluster/mediahubmx-resolve.json", 
-                        json=data_resolve, 
-                        headers=headers_resolve,
-                        timeout=10  # Aggiungi un timeout per evitare blocchi
-                    )
-                    
-                    if response.status_code == 200:
-                        result = response.json()
-                        if isinstance(result, list) and result and "url" in result[0]:
-                            stream_url = result[0]["url"]
-                            print(f"URL risolto con successo: {stream_url[:50]}...")
+                    if os.path.exists(RESOLVER_SCRIPT):
+                        print(f"Risoluzione URL per {channel_name} tramite resolver.py")
+                        result = subprocess.run(
+                            ['python3', RESOLVER_SCRIPT, '--url', stream_url, '--signature', signature, '--json'],
+                            capture_output=True, text=True, timeout=15
+                        )
+                        
+                        if result.returncode == 0 and result.stdout.strip():
+                            try:
+                                resolver_result = json.loads(result.stdout)
+                                if resolver_result["success"] and resolver_result["resolved_url"]:
+                                    stream_url = resolver_result["resolved_url"]
+                                    print(f"URL risolto con successo tramite resolver.py: {stream_url[:50]}...")
+                                else:
+                                    print(f"Resolver.py non ha restituito un URL valido: {result.stdout}")
+                            except json.JSONDecodeError:
+                                # Se non è JSON, potrebbe essere l'URL direttamente
+                                resolved_url = result.stdout.strip()
+                                if resolved_url:
+                                    stream_url = resolved_url
+                                    print(f"URL risolto con successo (testo diretto): {stream_url[:50]}...")
+                                else:
+                                    print(f"Output non valido da resolver.py: {result.stdout}")
                         else:
-                            print(f"Formato risposta non valido: {result}")
+                            print(f"Errore nell'esecuzione di resolver.py: Codice {result.returncode}, Errore: {result.stderr}")
                     else:
-                        print(f"Errore risposta HTTP: {response.status_code}")
+                        print(f"Script resolver.py non trovato in: {RESOLVER_SCRIPT}")
                 except Exception as e:
-                    print(f"Errore nella risoluzione URL: {e}")
+                    print(f"Errore durante la chiamata a resolver.py: {e}")
             
             # Crea l'URL finale per MediaFlow con l'URL risolto
             params = {
