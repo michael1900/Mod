@@ -6,7 +6,6 @@ import sys
 import re
 import os
 import subprocess
-import argparse
 
 # Importa direttamente la funzione da chiave.py se disponibile
 try:
@@ -43,30 +42,23 @@ def get_category(channel_name, category_keywords):
             return category
     return "ALTRI"
 
-def normalize_channel_name(channel_name, remove_last_chars=True):
-    # Rimuovi il suffisso .c o .s e fai lo strip
-    clean_name = re.sub(r"\.[cs]$", "", channel_name, flags=re.IGNORECASE).strip()
-    # Rimuovi gli ultimi 3 caratteri solo se richiesto e se il nome è abbastanza lungo
-    if remove_last_chars and len(clean_name) > 3:
-        clean_name = clean_name[:-3]
+def normalize_channel_name(channel_name):
+    # Rimuovi solo il suffisso " .c" o " .s" (incluso lo spazio)
+    clean_name = re.sub(r"\s+\.[cs]$", "", channel_name, flags=re.IGNORECASE).strip()
     return clean_name.lower()
 
 def get_logo_url(channel_name, channel_logos):
-    # Normalizza il nome del canale rimuovendo suffisso e ultimi 3 caratteri
-    normalized_name = normalize_channel_name(channel_name, remove_last_chars=True)
+    # Normalizza il nome del canale rimuovendo solo il suffisso " .c" o " .s"
+    normalized_name = normalize_channel_name(channel_name)
     
     # Cerca nel dizionario usando i nomi normalizzati
-    # Per le chiavi del dizionario, rimuovi solo il suffisso .c o .s ma NON gli ultimi 3 caratteri
     for logo_channel, logo_url in channel_logos.items():
-        normalized_logo_channel = normalize_channel_name(logo_channel, remove_last_chars=False)
+        normalized_logo_channel = normalize_channel_name(logo_channel)
         if normalized_name == normalized_logo_channel:
             return logo_url
     
     # Genera URL placeholder se non esiste un logo
-    clean_name = re.sub(r"\.[cs]$", "", channel_name, flags=re.IGNORECASE).strip()
-    # Rimuovi gli ultimi 3 caratteri come richiesto
-    if len(clean_name) > 3:
-        clean_name = clean_name[:-3]
+    clean_name = re.sub(r"\s+\.[cs]$", "", channel_name, flags=re.IGNORECASE).strip()
     # Sostituisci spazi con + per l'URL
     formatted_name = clean_name.replace(" ", "+")
     return f"https://placehold.co/400x400?text={formatted_name}&.png"
@@ -172,21 +164,6 @@ def generate_m3u(channels_json, signature, channel_filters, channel_remove, cate
 
 
 def main():
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description='Genera lista M3U8 da Vavoo')
-    parser.add_argument('--get-signature', action='store_true', help='Ottieni solo la signature e stampala')
-    args = parser.parse_args()
-
-    # Se l'opzione --get-signature è specificata, stampa solo la signature e esci
-    if args.get_signature:
-        signature = get_auth_signature()
-        if signature:
-            print(signature)
-            sys.exit(0)
-        else:
-            print("Non è stato possibile ottenere la signature")
-            sys.exit(1)
-
     # Carica configurazioni da file separati
     channel_filters = load_config("channel_filters.json")
     if not channel_filters:
