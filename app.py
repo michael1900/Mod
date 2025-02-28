@@ -102,9 +102,15 @@ def extract_url_params(request: Request):
     path = request.url.path
     mediaflow_url = DEFAULT_MEDIAFLOW_URL
     mediaflow_psw = DEFAULT_MEDIAFLOW_PSW
+    no_proxy = False
     
     # Ottieni i parametri dall'URL
     try:
+        # Controlla se l'opzione no_proxy è presente
+        if "/noproxy/true" in path:
+            no_proxy = True
+            print("Opzione no_proxy attivata")
+        
         # Cerca i parametri nel path
         if "/mfp/" in path and "/psw/" in path:
             parts = path.split("/")
@@ -118,7 +124,7 @@ def extract_url_params(request: Request):
     except (ValueError, IndexError) as e:
         print(f"Errore nell'estrazione dei parametri dall'URL: {e}")
     
-    return mediaflow_url, mediaflow_psw
+    return mediaflow_url, mediaflow_psw, no_proxy
 
 def get_category_keywords():
     """Ottiene le categorie dal file category_keywords.json"""
@@ -406,7 +412,7 @@ def to_meta(channel, mediaflow_url, mediaflow_psw):
         "logo": logo
     }
 
-def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
+def resolve_stream_url(channel, mediaflow_url, mediaflow_psw, no_proxy=False):
     """Risolve l'URL di stream di un canale"""
     channel_name = clean_channel_name(channel["name"])
     
@@ -416,6 +422,7 @@ def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
     
     # Inizializza l'URL di stream con quello originale
     stream_url = channel["url"]
+    signature = None
     
     # Se c'è un placeholder per la signature, risolvi l'URL
     if signature_placeholder == "[$KEY$]":
@@ -461,36 +468,34 @@ def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
                         print(f"Errore risposta HTTP: {response.status_code}")
                 except Exception as e:
                     print(f"Errore nella risoluzione URL: {e}")
-            
-            # Crea l'URL finale per MediaFlow con l'URL risolto
-            params = {
-                "api_password": mediaflow_psw,
-                "d": stream_url
-            }
-            
-            # Aggiungi headers alla query string
-            for key, value in headers.items():
-                params[f"h_{key}"] = value
-            
-            # Aggiungi anche la signature come header
-            params["h_mediahubmx-signature"] = signature
-            
-            final_url = f"https://{mediaflow_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
-        else:
-            print("Signature non ottenuta, uso URL non risolto")
-            # Fallback: usa l'URL originale senza signature
-            params = {
-                "api_password": mediaflow_psw,
-                "d": stream_url
-            }
-            
-            # Aggiungi headers alla query string
-            for key, value in headers.items():
-                params[f"h_{key}"] = value
-            
-            final_url = f"https://{mediaflow_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
+    
+    # Se no_proxy è True, restituisci direttamente l'URL risolto
+    if no_proxy:
+        print(f"Utilizzo stream diretto (no proxy) per {channel_name}")
+        
+        # Crea un oggetto behaviorHints con gli header necessari
+        behavior_hints = {}
+        if headers:
+            behavior_hints["headers"] = headers
+        
+        # Aggiungi la signature agli header se necessaria
+        if signature_placeholder == "[$KEY$]" and signature:
+            if "headers" not in behavior_hints:
+                behavior_hints["headers"] = {}
+            behavior_hints["headers"]["mediahubmx-signature"] = signature
+        
+        result = {
+            "url": stream_url,
+            "title": channel_name
+        }
+        
+        # Aggiungi behaviorHints solo se ci sono header
+        if behavior_hints:
+            result["behaviorHints"] = behavior_hints
+        
+        return result
     else:
-        # URL normale senza signature, usa solo MediaFlow con gli header standard
+        # URL con proxy MediaFlow
         params = {
             "api_password": mediaflow_psw,
             "d": stream_url
@@ -500,12 +505,16 @@ def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
         for key, value in headers.items():
             params[f"h_{key}"] = value
         
+        # Aggiungi anche la signature come header
+        if signature_placeholder == "[$KEY$]" and signature:
+            params["h_mediahubmx-signature"] = signature
+        
         final_url = f"https://{mediaflow_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
-    
-    return {
-        "url": final_url,
-        "title": channel_name
-    }
+        
+        return {
+            "url": final_url,
+            "title": channel_name
+        }
 
 def get_all_channels(mediaflow_url, mediaflow_psw):
     """Ottiene tutti i canali con i metadati per Stremio"""
@@ -575,6 +584,9 @@ def create_index_template():
         .form-group { margin-bottom: 20px; }
         label { display: block; margin-bottom: 8px; font-weight: bold; }
         input[type="text"], input[type="password"] { width: 100%; padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; }
+        .checkbox-group { display: flex; align-items: center; margin-bottom: 20px; }
+        .checkbox-group input { margin-right: 10px; }
+        .checkbox-group label { display: inline; font-weight: normal; }
         .btn { display: inline-block; padding: 12px 20px; background: #4caf50; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
         .btn:hover { background: #45a049; }
         .result-section { margin-top: 30px; padding: 20px; background-color: #f8f8f8; border-radius: 8px; display: none; }
@@ -599,6 +611,11 @@ def create_index_template():
         <input type="password" id="mediaflow_psw" value="{{ default_psw }}" placeholder="Password">
     </div>
     
+    <div class="checkbox-group">
+        <input type="checkbox" id="no_proxy" name="no_proxy">
+        <label for="no_proxy">Non utilizzare proxy (stream diretto)</label>
+    </div>
+    
     <button id="generateLink" class="btn">Genera Link di Installazione</button>
     
     <div id="resultSection" class="result-section">
@@ -614,6 +631,7 @@ def create_index_template():
         document.getElementById('generateLink').addEventListener('click', function() {
             const mfpUrl = document.getElementById('mediaflow_url').value.trim();
             const mfpPsw = document.getElementById('mediaflow_psw').value.trim();
+            const noProxy = document.getElementById('no_proxy').checked;
             
             if (!mfpUrl || !mfpPsw) {
                 alert('Inserisci sia URL che password');
@@ -623,9 +641,10 @@ def create_index_template():
             const domain = '{{ domain }}';
             const encodedUrl = encodeURIComponent(mfpUrl);
             const encodedPsw = encodeURIComponent(mfpPsw);
+            const noProxyPath = noProxy ? '/noproxy/true' : '';
             
             // Usa il formato del percorso URL che Stremio si aspetta
-            const stremioLink = `stremio://${domain}/mfp/${encodedUrl}/psw/${encodedPsw}/manifest.json`;
+            const stremioLink = `stremio://${domain}/mfp/${encodedUrl}/psw/${encodedPsw}${noProxyPath}/manifest.json`;
             
             document.getElementById('stremioLink').href = stremioLink;
             document.getElementById('generatedUrl').textContent = stremioLink;
@@ -696,16 +715,23 @@ async def status():
         "categories": list(get_category_keywords().keys())
     }
 
+# Rotte per manifest con parametri nell'URL
 @app.get("/mfp/{url}/psw/{psw}/manifest.json")
 async def manifest_with_params(url: str, psw: str):
     """Manifest con parametri inclusi nell'URL"""
     print(f"Manifest requested with URL params: {url}, {psw}")
     return create_manifest(url, psw)
 
+@app.get("/mfp/{url}/psw/{psw}/noproxy/true/manifest.json")
+async def manifest_with_noproxy(url: str, psw: str):
+    """Manifest con parametri inclusi nell'URL e opzione senza proxy"""
+    print(f"Manifest requested with URL params and no proxy option: {url}, {psw}")
+    return create_manifest(url, psw)
+
 @app.get("/manifest.json")
 async def manifest(request: Request):
     """Manifest dell'addon"""
-    mediaflow_url, mediaflow_psw = extract_url_params(request)
+    mediaflow_url, mediaflow_psw, _ = extract_url_params(request)
     print(f"Manifest requested: {mediaflow_url}, {mediaflow_psw}")
     return create_manifest(mediaflow_url, mediaflow_psw)
 
@@ -737,6 +763,12 @@ async def catalog_with_search_param(url: str, psw: str, type: str, id: str, sear
     print(f"Serving catalog with search for {category} with {len(filtered_channels)} channels")
     return {"metas": filtered_channels}
 
+@app.get("/mfp/{url}/psw/{psw}/noproxy/true/catalog/{type}/{id}/{search_param}.json")
+async def catalog_with_search_noproxy(url: str, psw: str, type: str, id: str, search_param: str):
+    """Catalogo dei canali con parametri nel path, ricerca e opzione senza proxy"""
+    print(f"Catalog requested with search param and no proxy: {type}, {id}, search={search_param}, url={url}, psw={psw}")
+    return await catalog_with_search_param(url, psw, type, id, search_param)
+
 # Gestisce il formato standard del catalogo
 @app.get("/mfp/{url}/psw/{psw}/catalog/{type}/{id}.json")
 async def catalog_with_params(url: str, psw: str, type: str, id: str, request: Request, genre: str = None, search: str = None):
@@ -760,6 +792,12 @@ async def catalog_with_params(url: str, psw: str, type: str, id: str, request: R
     print(f"Serving catalog for {category} with {len(filtered_channels)} channels")
     return {"metas": filtered_channels}
 
+@app.get("/mfp/{url}/psw/{psw}/noproxy/true/catalog/{type}/{id}.json")
+async def catalog_with_noproxy(url: str, psw: str, type: str, id: str, request: Request, genre: str = None, search: str = None):
+    """Catalogo dei canali con parametri nel path e opzione senza proxy"""
+    print(f"Catalog requested with path params and no proxy: {type}, {id}, url={url}, psw={psw}")
+    return await catalog_with_params(url, psw, type, id, request, genre, search)
+
 @app.get("/catalog/{type}/{id}.json")
 async def catalog(type: str, id: str, request: Request, genre: str = None, search: str = None):
     """Catalogo dei canali"""
@@ -768,7 +806,7 @@ async def catalog(type: str, id: str, request: Request, genre: str = None, searc
     if type != "tv" or not id.startswith("mediaflow-"):
         return {"metas": []}
     
-    mediaflow_url, mediaflow_psw = extract_url_params(request)
+    mediaflow_url, mediaflow_psw, _ = extract_url_params(request)
     category = id.split("-")[1]
     all_channels = get_all_channels(mediaflow_url, mediaflow_psw)
     
@@ -800,6 +838,12 @@ async def meta_with_params(url: str, psw: str, type: str, id: str):
     else:
         return {"meta": {}}
 
+@app.get("/mfp/{url}/psw/{psw}/noproxy/true/meta/{type}/{id}.json")
+async def meta_with_noproxy(url: str, psw: str, type: str, id: str):
+    """Metadati del canale con parametri nel path e opzione senza proxy"""
+    print(f"Meta requested with path params and no proxy: {type}, {id}, url={url}, psw={psw}")
+    return await meta_with_params(url, psw, type, id)
+
 @app.get("/meta/{type}/{id}.json")
 async def meta(type: str, id: str, request: Request):
     """Metadati del canale"""
@@ -808,7 +852,7 @@ async def meta(type: str, id: str, request: Request):
     if type != "tv" or not id.startswith("mediaflow-"):
         return {"meta": {}}
     
-    mediaflow_url, mediaflow_psw = extract_url_params(request)
+    mediaflow_url, mediaflow_psw, _ = extract_url_params(request)
     all_channels = get_all_channels(mediaflow_url, mediaflow_psw)
     channel = next((c for c in all_channels if c["id"] == id), None)
     
@@ -826,8 +870,10 @@ async def stream_with_params(url: str, psw: str, type: str, id: str):
     if type != "tv" or not id.startswith("mediaflow-"):
         return {"streams": []}
     
-    # Ottieni tutti i canali (senza risoluzione URL)
-    all_channels = get_all_channels(url, psw)
+    # Verifica se l'opzione no_proxy è abilitata
+    no_proxy = False
+    fake_request = Request(scope={"type": "http", "path": f"/mfp/{url}/psw/{psw}"})
+    _, _, no_proxy = extract_url_params(fake_request)
     
     # Trova il canale specifico richiesto
     original_channel = next((c for c in channels_data_cache if f"mediaflow-{c['id']}" == id), None)
@@ -837,9 +883,31 @@ async def stream_with_params(url: str, psw: str, type: str, id: str):
         return {"streams": []}
     
     # Risolvi l'URL del canale e crea le informazioni di stream
-    print(f"Trovato il canale, risolvo lo stream per: {original_channel['name']}")
-    stream_info = resolve_stream_url(original_channel, url, psw)
+    print(f"Trovato il canale, risolvo lo stream per: {original_channel['name']} (no_proxy={no_proxy})")
+    stream_info = resolve_stream_url(original_channel, url, psw, no_proxy)
     print(f"Stream risolto per {original_channel['name']}")
+    
+    return {"streams": [stream_info]}
+
+@app.get("/mfp/{url}/psw/{psw}/noproxy/true/stream/{type}/{id}.json")
+async def stream_with_noproxy(url: str, psw: str, type: str, id: str):
+    """Stream del canale con parametri nel path e opzione senza proxy"""
+    print(f"Stream requested with path params and no proxy: {type}, {id}, url={url}, psw={psw}")
+    
+    if type != "tv" or not id.startswith("mediaflow-"):
+        return {"streams": []}
+    
+    # Trova il canale specifico richiesto
+    original_channel = next((c for c in channels_data_cache if f"mediaflow-{c['id']}" == id), None)
+    
+    if not original_channel:
+        print(f"No matching channel found for channelID: {id}")
+        return {"streams": []}
+    
+    # Risolvi l'URL del canale e crea le informazioni di stream
+    print(f"Trovato il canale, risolvo lo stream per: {original_channel['name']} (no proxy)")
+    stream_info = resolve_stream_url(original_channel, url, psw, True)  # Forza no_proxy=True
+    print(f"Stream risolto per {original_channel['name']} (no proxy)")
     
     return {"streams": [stream_info]}
 
@@ -851,7 +919,7 @@ async def stream(type: str, id: str, request: Request):
     if type != "tv" or not id.startswith("mediaflow-"):
         return {"streams": []}
     
-    mediaflow_url, mediaflow_psw = extract_url_params(request)
+    mediaflow_url, mediaflow_psw, no_proxy = extract_url_params(request)
     
     # Trova il canale specifico richiesto
     original_channel = next((c for c in channels_data_cache if f"mediaflow-{c['id']}" == id), None)
@@ -861,8 +929,8 @@ async def stream(type: str, id: str, request: Request):
         return {"streams": []}
     
     # Risolvi l'URL del canale e crea le informazioni di stream
-    print(f"Trovato il canale, risolvo lo stream per: {original_channel['name']}")
-    stream_info = resolve_stream_url(original_channel, mediaflow_url, mediaflow_psw)
+    print(f"Trovato il canale, risolvo lo stream per: {original_channel['name']} (no_proxy={no_proxy})")
+    stream_info = resolve_stream_url(original_channel, mediaflow_url, mediaflow_psw, no_proxy)
     print(f"Stream risolto per {original_channel['name']}")
     
     return {"streams": [stream_info]}
