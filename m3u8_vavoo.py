@@ -100,7 +100,7 @@ def get_channel_list(signature, group="Italy"):
             break
 
     return {"items": all_items}
-
+    
 def generate_m3u(channels_json, signature, channel_filters, channel_remove, category_keywords, channel_logos, filename="channels.m3u8"):
     setup_logging()
     items = channels_json.get("items", [])
