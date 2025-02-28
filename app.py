@@ -36,10 +36,6 @@ ICONS_FILE = os.path.join(DATA_DIR, 'channel_icons.json')
 CHANNELS_FILE = os.path.join(DATA_DIR, 'channels_data.json')
 CATEGORY_KEYWORDS_FILE = os.path.join(BASE_DIR, 'category_keywords.json')  # File per le categorie
 
-# Cache per la signature di Vavoo
-vavoo_signature = None
-vavoo_signature_timestamp = 0
-
 # Inizializza cartelle necessarie
 os.makedirs(os.path.join(BASE_DIR, "templates"), exist_ok=True)
 os.makedirs(os.path.join(BASE_DIR, "static"), exist_ok=True)
@@ -141,40 +137,32 @@ def get_channel_category(channel_name):
     return "ALTRI"
 
 def get_vavoo_signature():
-    """Ottiene la signature per Vavoo, generando una nuova se necessario"""
-    global vavoo_signature, vavoo_signature_timestamp
-    current_time = time.time()
-    
-    # Se la signature non esiste o è scaduta (dopo 3 ore)
-    if not vavoo_signature or (current_time - vavoo_signature_timestamp) > 10800:
-        try:
-            # Prova prima con lo script chiave.py
-            if os.path.exists(CHIAVE_SCRIPT):
-                print(f"Ottenimento signature da: {CHIAVE_SCRIPT}")
-                result = subprocess.run(['python3', CHIAVE_SCRIPT], 
-                                      capture_output=True, text=True, check=True)
-                new_signature = result.stdout.strip()
-                if new_signature:
-                    vavoo_signature = new_signature
-                    vavoo_signature_timestamp = current_time
-                    print(f"Nuova signature ottenuta da chiave.py: {vavoo_signature[:10]}...")
-                    return vavoo_signature
-            
-            # Altrimenti usa lo script m3u8_vavoo.py
-            print(f"Ottenimento signature da: {M3U8_GENERATOR}")
-            result = subprocess.run(['python3', M3U8_GENERATOR, '--get-signature'], 
+    """Ottiene la signature per Vavoo, rigenerandola ad ogni chiamata"""
+    try:
+        # Prova prima con lo script chiave.py
+        if os.path.exists(CHIAVE_SCRIPT):
+            print(f"Ottenimento signature da: {CHIAVE_SCRIPT}")
+            result = subprocess.run(['python3', CHIAVE_SCRIPT], 
                                   capture_output=True, text=True, check=True)
             new_signature = result.stdout.strip()
             if new_signature:
-                vavoo_signature = new_signature
-                vavoo_signature_timestamp = current_time
-                print(f"Nuova signature ottenuta da m3u8_vavoo.py: {vavoo_signature[:10]}...")
-            else:
-                print("Nessuna signature ottenuta dagli script esterni")
-        except Exception as e:
-            print(f"Errore durante l'ottenimento della signature: {e}")
-    
-    return vavoo_signature
+                print(f"Nuova signature ottenuta da chiave.py: {new_signature[:10]}...")
+                return new_signature
+        
+        # Altrimenti usa lo script m3u8_vavoo.py
+        print(f"Ottenimento signature da: {M3U8_GENERATOR}")
+        result = subprocess.run(['python3', M3U8_GENERATOR, '--get-signature'], 
+                              capture_output=True, text=True, check=True)
+        new_signature = result.stdout.strip()
+        if new_signature:
+            print(f"Nuova signature ottenuta da m3u8_vavoo.py: {new_signature[:10]}...")
+            return new_signature
+        else:
+            print("Nessuna signature ottenuta dagli script esterni")
+            return None
+    except Exception as e:
+        print(f"Errore durante l'ottenimento della signature: {e}")
+        return None
 
 def create_manifest(mediaflow_url, mediaflow_psw):
     """Crea il manifest dell'addon con i parametri personalizzati"""
@@ -386,7 +374,7 @@ def to_meta(channel, mediaflow_url, mediaflow_psw):
     }
 
 def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
-    """Risolve l'URL di stream di un canale"""
+    """Risolve l'URL di stream di un canale, restituendo due stream: uno con MediaFlow e uno diretto"""
     channel_name = clean_channel_name(channel["name"])
     
     # Se il canale ha headers specifici, usali
@@ -395,10 +383,12 @@ def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
     
     # Inizializza l'URL di stream con quello originale
     stream_url = channel["url"]
+    resolved_url = None
+    stremio_headers = {}
     
     # Se c'è un placeholder per la signature, risolvi l'URL
     if signature_placeholder == "[$KEY$]":
-        # Ottieni la signature aggiornata
+        # Ottieni una nuova signature ogni volta
         signature = get_vavoo_signature()
         
         if signature:
@@ -418,21 +408,27 @@ def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
                             try:
                                 resolver_result = json.loads(result.stdout)
                                 if resolver_result["success"] and resolver_result["resolved_url"]:
-                                    stream_url = resolver_result["resolved_url"]
-                                    print(f"URL risolto con successo tramite resolver.py: {stream_url[:50]}...")
+                                    resolved_url = resolver_result["resolved_url"]
+                                    print(f"URL risolto con successo tramite resolver.py: {resolved_url[:50]}...")
                             except json.JSONDecodeError:
                                 # Se non è JSON, potrebbe essere l'URL direttamente
                                 resolved_url = result.stdout.strip()
                                 if resolved_url:
-                                    stream_url = resolved_url
-                                    print(f"URL risolto con successo (testo diretto): {stream_url[:50]}...")
+                                    print(f"URL risolto con successo (testo diretto): {resolved_url[:50]}...")
                 except Exception as e:
                     print(f"Errore durante la chiamata a resolver.py: {e}")
+            
+            # Crea gli header per lo stream diretto
+            if headers:
+                stremio_headers = headers.copy()
+            
+            # Aggiungi la signature
+            stremio_headers["mediahubmx-signature"] = signature
             
             # Crea l'URL finale per MediaFlow con l'URL risolto
             params = {
                 "api_password": mediaflow_psw,
-                "d": stream_url
+                "d": resolved_url or stream_url
             }
             
             # Aggiungi headers alla query string
@@ -442,7 +438,7 @@ def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
             # Aggiungi anche la signature come header
             params["h_mediahubmx-signature"] = signature
             
-            final_url = f"https://{mediaflow_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
+            mediaflow_url_final = f"https://{mediaflow_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
         else:
             # Usa l'URL originale senza signature
             params = {
@@ -454,7 +450,7 @@ def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
             for key, value in headers.items():
                 params[f"h_{key}"] = value
             
-            final_url = f"https://{mediaflow_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
+            mediaflow_url_final = f"https://{mediaflow_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
     else:
         # URL normale senza signature, usa solo MediaFlow con gli header standard
         params = {
@@ -466,12 +462,36 @@ def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
         for key, value in headers.items():
             params[f"h_{key}"] = value
         
-        final_url = f"https://{mediaflow_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
+        mediaflow_url_final = f"https://{mediaflow_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
+        
+        # Per lo stream diretto, usa gli stessi headers
+        stremio_headers = headers.copy()
+        resolved_url = stream_url
     
-    return {
-        "url": final_url,
-        "title": channel_name
-    }
+    # Crea i due stream: 1) MediaFlow Proxy, 2) Stream diretto con headers
+    streams = [
+        {
+            "url": mediaflow_url_final,
+            "title": f"{channel_name} (MediaFlow Proxy)",
+            "name": "MediaFlow"
+        }
+    ]
+    
+    # Aggiungi lo stream diretto se è stato risolto
+    if resolved_url:
+        direct_stream = {
+            "url": resolved_url,
+            "title": f"{channel_name} (Diretto)",
+            "name": "Diretto"
+        }
+        
+        # Aggiungi gli headers se presenti
+        if stremio_headers:
+            direct_stream["headers"] = stremio_headers
+        
+        streams.append(direct_stream)
+    
+    return streams
 
 def get_all_channels(mediaflow_url, mediaflow_psw):
     """Ottiene tutti i canali con i metadati per Stremio"""
@@ -515,9 +535,8 @@ def refresh_channels_periodically():
                 global channels_data_cache, channels_data_timestamp
                 channels_data_cache = []
                 channels_data_timestamp = 0
-                
-                # Aggiorna anche la signature di Vavoo
-                get_vavoo_signature()
+            else:
+                print("Impossibile generare la lista M3U8")
         except Exception as e:
             print(f"Errore nell'aggiornamento dei canali: {e}")
             
@@ -671,7 +690,6 @@ async def catalog_with_params(url: str, psw: str, type: str, id: str, request: R
 async def catalog(type: str, id: str, request: Request, genre: str = None, search: str = None):
     """Catalogo dei canali"""
     print(f"Catalog requested: {type}, {id}")
-    
     if type != "tv" or not id.startswith("mediaflow-"):
         return {"metas": []}
     
@@ -686,7 +704,8 @@ async def catalog(type: str, id: str, request: Request, genre: str = None, searc
     if search:
         search = search.lower()
         filtered_channels = [c for c in all_channels if search in c["name"].lower()]
-        print(f"Serving catalog for {category} with {len(filtered_channels)} channels")
+    
+    print(f"Serving catalog for {category} with {len(filtered_channels)} channels")
     return {"metas": filtered_channels}
 
 # Aggiunto supporto per il formato di percorso che Stremio usa per i metadati
@@ -732,7 +751,7 @@ async def stream_with_params(url: str, psw: str, type: str, id: str):
     if type != "tv" or not id.startswith("mediaflow-"):
         return {"streams": []}
     
-    # Ottieni tutti i canali (senza risoluzione URL)
+    # Ottieni tutti i canali
     all_channels = get_all_channels(url, psw)
     
     # Trova il canale specifico richiesto
@@ -742,12 +761,12 @@ async def stream_with_params(url: str, psw: str, type: str, id: str):
         print(f"No matching channel found for channelID: {id}")
         return {"streams": []}
     
-    # Risolvi l'URL del canale e crea le informazioni di stream
+    # Risolvi l'URL del canale e crea le informazioni di stream (doppio stream)
     print(f"Trovato il canale, risolvo lo stream per: {original_channel['name']}")
     stream_info = resolve_stream_url(original_channel, url, psw)
-    print(f"Stream risolto per {original_channel['name']}")
+    print(f"Stream risolto per {original_channel['name']} con {len(stream_info)} varianti")
     
-    return {"streams": [stream_info]}
+    return {"streams": stream_info}
 
 @app.get("/stream/{type}/{id}.json")
 async def stream(type: str, id: str, request: Request):
@@ -766,12 +785,12 @@ async def stream(type: str, id: str, request: Request):
         print(f"No matching channel found for channelID: {id}")
         return {"streams": []}
     
-    # Risolvi l'URL del canale e crea le informazioni di stream
+    # Risolvi l'URL del canale e crea le informazioni di stream (doppio stream)
     print(f"Trovato il canale, risolvo lo stream per: {original_channel['name']}")
     stream_info = resolve_stream_url(original_channel, mediaflow_url, mediaflow_psw)
-    print(f"Stream risolto per {original_channel['name']}")
+    print(f"Stream risolto per {original_channel['name']} con {len(stream_info)} varianti")
     
-    return {"streams": [stream_info]}
+    return {"streams": stream_info}
 
 # Avvio dell'applicazione
 if __name__ == "__main__":
