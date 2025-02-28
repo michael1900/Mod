@@ -5,83 +5,23 @@ import logging
 import sys
 import re
 import os
+import subprocess
+import argparse
 
-def get_auth_signature():
-    headers = {
-        "user-agent": "okhttp/4.11.0",
-        "accept": "application/json",
-        "content-type": "application/json; charset=utf-8",
-        "content-length": "1106",
-        "accept-encoding": "gzip"
-    }
-
-    data = {
-        "token": "8Us2TfjeOFrzqFFTEjL3E5KfdAWGa5PV3wQe60uK4BmzlkJRMYFu0ufaM_eeDXKS2U04XUuhbDTgGRJrJARUwzDyCcRToXhW5AcDekfFMfwNUjuieeQ1uzeDB9YWyBL2cn5Al3L3gTnF8Vk1t7rPwkBob0swvxA",
-        "reason": "player.enter",
-        "locale": "de",
-        "theme": "dark",
-        "metadata": {
-            "device": {
-                "type": "Handset",
-                "brand": "google",
-                "model": "Nexus 5",
-                "name": "21081111RG",
-                "uniqueId": "d10e5d99ab665233"
-            },
-            "os": {
-                "name": "android",
-                "version": "7.1.2",
-                "abis": ["arm64-v8a", "armeabi-v7a", "armeabi"],
-                "host": "android"
-            },
-            "app": {
-                "platform": "android",
-                "version": "3.0.2",
-                "buildId": "288045000",
-                "engine": "jsc",
-                "signatures": ["09f4e07040149486e541a1cb34000b6e12527265252fa2178dfe2bd1af6b815a"],
-                "installer": "com.android.secex"
-            },
-            "version": {
-                "package": "tv.vavoo.app",
-                "binary": "3.0.2",
-                "js": "3.1.4"
-            }
-        },
-        "appFocusTime": 27229,
-        "playerActive": True,
-        "playDuration": 0,
-        "devMode": False,
-        "hasAddon": True,
-        "castConnected": False,
-        "package": "tv.vavoo.app",
-        "version": "3.1.4",
-        "process": "app",
-        "firstAppStart": 1728674705639,
-        "lastAppStart": 1728674705639,
-        "ipLocation": "",
-        "adblockEnabled": True,
-        "proxy": {
-            "supported": ["ss"],
-            "engine": "ss",
-            "enabled": False,
-            "autoServer": True,
-            "id": "ca-bhs"
-        },
-        "iap": {
-            "supported": False
-        }
-    }
-
-    try:
-        response = requests.post("https://www.vavoo.tv/api/app/ping", json=data, headers=headers)
-        response.raise_for_status()
-        res_json = response.json()
-        return res_json.get("addonSig")
-    except Exception as e:
-        print(f"Errore durante il recupero della firma: {e}")
-        return None
-
+# Importa direttamente la funzione da chiave.py se disponibile
+try:
+    from chiave import get_auth_signature
+except ImportError:
+    # Fallback: il file chiave.py potrebbe non essere ancora stato creato
+    def get_auth_signature():
+        try:
+            # Esegui lo script chiave.py come processo separato
+            result = subprocess.run(['python3', 'chiave.py'], 
+                                  capture_output=True, text=True, check=True)
+            return result.stdout.strip()
+        except Exception as e:
+            print(f"Errore durante l'esecuzione di chiave.py: {e}")
+            return None
 
 def setup_logging():
     logging.basicConfig(filename="excluded_channels.log", level=logging.INFO, format="%(asctime)s - %(message)s")
@@ -207,6 +147,21 @@ def generate_m3u(channels_json, signature, channel_filters, channel_remove, cate
 
 
 def main():
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Genera lista M3U8 da Vavoo')
+    parser.add_argument('--get-signature', action='store_true', help='Ottieni solo la signature e stampala')
+    args = parser.parse_args()
+
+    # Se l'opzione --get-signature è specificata, stampa solo la signature e esci
+    if args.get_signature:
+        signature = get_auth_signature()
+        if signature:
+            print(signature)
+            sys.exit(0)
+        else:
+            print("Non è stato possibile ottenere la signature")
+            sys.exit(1)
+
     # Carica configurazioni da file separati
     channel_filters = load_config("channel_filters.json")
     if not channel_filters:
