@@ -55,7 +55,7 @@ def get_logo_url(channel_name, channel_logos):
         clean_name = clean_name[:-3]
     # Sostituisci spazi con + per l'URL
     formatted_name = clean_name.replace(" ", "+")
-    return f"https://placehold.co/400x400?text={formatted_name}"
+    return f"https://placehold.co/400x400?text={formatted_name}&.png"
 
 def get_channel_list(signature, group="Italy"):
     headers = {
