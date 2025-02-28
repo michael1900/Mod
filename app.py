@@ -5,6 +5,7 @@ import re
 import time
 import random
 import subprocess
+import requests
 from urllib.parse import urlencode, quote_plus, unquote
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -347,16 +348,21 @@ def get_channels_data():
     global channels_data_cache, channels_data_timestamp
     current_time = time.time()
     
+    print("Inizio get_channels_data()")
+    
     # Se la cache è vuota o è passato troppo tempo dall'ultimo aggiornamento
     if not channels_data_cache or (current_time - channels_data_timestamp) > 3600:  # 1 ora
-        print("Caricamento lista canali...")
+        print("Cache non valida, caricamento lista canali...")
         
         # Prima controlla se esiste il file JSON
         channels = load_json_file(CHANNELS_FILE, [])
+        print(f"Caricati {len(channels)} canali dal file JSON")
         
         # Se il file JSON non esiste o è vuoto, analizza il file M3U8
         if not channels:
+            print("File JSON vuoto o inesistente, analisi del file M3U8...")
             channels = parse_m3u8_to_channels()
+            print(f"Analizzati {len(channels)} canali da M3U8")
         
         # Se ancora non abbiamo canali, usa alcuni canali di esempio
         if not channels:
@@ -371,7 +377,9 @@ def get_channels_data():
         
         channels_data_cache = channels
         channels_data_timestamp = current_time
-        print(f"Caricati {len(channels)} canali")
+        print(f"Caricati {len(channels)} canali in totale")
+    else:
+        print(f"Utilizzo {len(channels_data_cache)} canali dalla cache")
     
     return channels_data_cache
 
@@ -386,125 +394,7 @@ def to_meta(channel, mediaflow_url, mediaflow_psw):
     # Categoria/genere del canale
     genre = channel.get("genre", "ALTRI")
     
-    # Se il canale ha headers specifici, usali
-    headers = channel.get("headers", {})
-    signature_placeholder = channel.get("signature_placeholder")
-    
-    # Se c'è un placeholder per la signature, sostituiscilo con la signature attuale
-    if signature_placeholder == "[$KEY$]":
-        # Ottieni la signature aggiornata
-        signature = get_vavoo_signature()
-        
-        # Verifica se la signature è stata ottenuta
-        if not signature:
-            print(f"ERRORE: Non è stato possibile ottenere la signature per {channel_name}")
-            # Usa un approccio di fallback senza signature
-            params = {
-                "api_password": mediaflow_psw,
-                "d": channel["url"]
-            }
-            
-            # Aggiungi headers alla query string
-            for key, value in headers.items():
-                params[f"h_{key}"] = value
-            
-            stream_url = f"https://{mediaflow_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
-        else:
-            # Risolvi l'URL utilizzando il resolver
-            original_url = channel["url"]
-            RESOLVER_SCRIPT = os.path.join(BASE_DIR, 'resolver.py')
-            
-            try:
-                if os.path.exists(RESOLVER_SCRIPT):
-                    print(f"Risoluzione URL per {channel_name} usando {RESOLVER_SCRIPT}")
-                    result = subprocess.run(
-                        ['python3', RESOLVER_SCRIPT, '--url', original_url, '--signature', signature, '--json'],
-                        capture_output=True, text=True, check=True
-                    )
-                    
-                    # Parse del risultato JSON
-                    resolver_result = json.loads(result.stdout)
-                    
-                    if resolver_result["success"]:
-                        resolved_url = resolver_result["resolved_url"]
-                        print(f"URL risolto con successo per {channel_name}")
-                        
-                        # Crea i parametri per MediaFlow con l'URL risolto
-                        params = {
-                            "api_password": mediaflow_psw,
-                            "d": resolved_url
-                        }
-                        
-                        # Aggiungi headers alla query string
-                        for key, value in headers.items():
-                            params[f"h_{key}"] = value
-                        
-                        # Crea l'URL finale per MediaFlow
-                        stream_url = f"https://{mediaflow_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
-                    else:
-                        print(f"Impossibile risolvere l'URL per {channel_name}, usando URL originale")
-                        # Fallback all'URL originale
-                        params = {
-                            "api_password": mediaflow_psw,
-                            "d": original_url
-                        }
-                        
-                        # Aggiungi headers alla query string
-                        for key, value in headers.items():
-                            params[f"h_{key}"] = value
-                        
-                        # Aggiungi anche la signature come header
-                        params["h_mediahubmx-signature"] = signature
-                        
-                        # Crea l'URL finale per MediaFlow
-                        stream_url = f"https://{mediaflow_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
-                else:
-                    print(f"Script resolver non trovato: {RESOLVER_SCRIPT}, utilizzo URL originale con signature")
-                    # Fallback all'URL originale con signature
-                    params = {
-                        "api_password": mediaflow_psw,
-                        "d": original_url
-                    }
-                    
-                    # Aggiungi headers alla query string
-                    for key, value in headers.items():
-                        params[f"h_{key}"] = value
-                    
-                    # Aggiungi anche la signature come header
-                    params["h_mediahubmx-signature"] = signature
-                    
-                    # Crea l'URL finale per MediaFlow
-                    stream_url = f"https://{mediaflow_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
-            except Exception as e:
-                print(f"Errore durante la risoluzione dell'URL per {channel_name}: {e}")
-                # Fallback all'URL originale con signature
-                params = {
-                    "api_password": mediaflow_psw,
-                    "d": original_url
-                }
-                
-                # Aggiungi headers alla query string
-                for key, value in headers.items():
-                    params[f"h_{key}"] = value
-                
-                # Aggiungi anche la signature come header
-                params["h_mediahubmx-signature"] = signature
-                
-                # Crea l'URL finale per MediaFlow
-                stream_url = f"https://{mediaflow_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
-    else:
-        # URL normale senza signature, usa solo MediaFlow con gli header standard
-        params = {
-            "api_password": mediaflow_psw,
-            "d": channel["url"]
-        }
-        
-        # Aggiungi headers alla query string
-        for key, value in headers.items():
-            params[f"h_{key}"] = value
-        
-        stream_url = f"https://{mediaflow_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
-    
+    # Non risolvere l'URL qui, poiché sarà gestito dalle funzioni di stream
     return {
         "id": f"mediaflow-{channel['id']}",
         "name": channel_name,
@@ -513,26 +403,136 @@ def to_meta(channel, mediaflow_url, mediaflow_psw):
         "poster": logo,
         "posterShape": "square",
         "background": logo,
-        "logo": logo,
-        "streamInfo": {
-            "url": stream_url,
-            "title": channel_name
-        }
+        "logo": logo
     }
+
+def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
+    """Risolve l'URL di stream di un canale"""
+    channel_name = clean_channel_name(channel["name"])
     
+    # Se il canale ha headers specifici, usali
+    headers = channel.get("headers", {})
+    signature_placeholder = channel.get("signature_placeholder")
+    
+    # Inizializza l'URL di stream con quello originale
+    stream_url = channel["url"]
+    
+    # Se c'è un placeholder per la signature, risolvi l'URL
+    if signature_placeholder == "[$KEY$]":
+        # Ottieni la signature aggiornata
+        signature = get_vavoo_signature()
+        
+        if signature:
+            # Risolvi l'URL se necessario
+            if "localhost" not in stream_url:
+                try:
+                    print(f"Tentativo di risoluzione URL per lo stream di {channel_name}")
+                    # Implementazione diretta della risoluzione URL
+                    headers_resolve = {
+                        "user-agent": "MediaHubMX/2",
+                        "accept": "application/json",
+                        "content-type": "application/json; charset=utf-8",
+                        "accept-encoding": "gzip",
+                        "mediahubmx-signature": signature
+                    }
+                    
+                    data_resolve = {
+                        "language": "de",
+                        "region": "AT",
+                        "url": stream_url,
+                        "clientVersion": "3.0.2"
+                    }
+                    
+                    response = requests.post(
+                        "https://vavoo.to/vto-cluster/mediahubmx-resolve.json", 
+                        json=data_resolve, 
+                        headers=headers_resolve,
+                        timeout=10  # Aggiungi un timeout per evitare blocchi
+                    )
+                    
+                    if response.status_code == 200:
+                        result = response.json()
+                        if isinstance(result, list) and result and "url" in result[0]:
+                            stream_url = result[0]["url"]
+                            print(f"URL risolto con successo: {stream_url[:50]}...")
+                        else:
+                            print(f"Formato risposta non valido: {result}")
+                    else:
+                        print(f"Errore risposta HTTP: {response.status_code}")
+                except Exception as e:
+                    print(f"Errore nella risoluzione URL: {e}")
+            
+            # Crea l'URL finale per MediaFlow con l'URL risolto
+            params = {
+                "api_password": mediaflow_psw,
+                "d": stream_url
+            }
+            
+            # Aggiungi headers alla query string
+            for key, value in headers.items():
+                params[f"h_{key}"] = value
+            
+            # Aggiungi anche la signature come header
+            params["h_mediahubmx-signature"] = signature
+            
+            final_url = f"https://{mediaflow_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
+        else:
+            print("Signature non ottenuta, uso URL non risolto")
+            # Fallback: usa l'URL originale senza signature
+            params = {
+                "api_password": mediaflow_psw,
+                "d": stream_url
+            }
+            
+            # Aggiungi headers alla query string
+            for key, value in headers.items():
+                params[f"h_{key}"] = value
+            
+            final_url = f"https://{mediaflow_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
+    else:
+        # URL normale senza signature, usa solo MediaFlow con gli header standard
+        params = {
+            "api_password": mediaflow_psw,
+            "d": stream_url
+        }
+        
+        # Aggiungi headers alla query string
+        for key, value in headers.items():
+            params[f"h_{key}"] = value
+        
+        final_url = f"https://{mediaflow_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
+    
+    return {
+        "url": final_url,
+        "title": channel_name
+    }
+
 def get_all_channels(mediaflow_url, mediaflow_psw):
     """Ottiene tutti i canali con i metadati per Stremio"""
+    print(f"Inizio get_all_channels con URL: {mediaflow_url}")
+    
     if not mediaflow_url or not mediaflow_psw:
+        print("ERRORE: URL o password MediaFlow mancante")
         return []
     
-    channels_data = get_channels_data()
-    
-    all_channels = [
-        to_meta(channel, mediaflow_url, mediaflow_psw)
-        for channel in channels_data
-    ]
-    
-    return all_channels
+    try:
+        channels_data = get_channels_data()
+        print(f"Ottenuti {len(channels_data)} canali dai dati")
+        
+        all_channels = []
+        for i, channel in enumerate(channels_data):
+            try:
+                print(f"Elaborazione canale {i+1}/{len(channels_data)}: {channel.get('name', 'Unknown')}")
+                meta = to_meta(channel, mediaflow_url, mediaflow_psw)
+                all_channels.append(meta)
+            except Exception as e:
+                print(f"ERRORE durante elaborazione canale {channel.get('name', 'Unknown')}: {e}")
+        
+        print(f"Elaborati {len(all_channels)} canali in totale")
+        return all_channels
+    except Exception as e:
+        print(f"ERRORE generico in get_all_channels: {e}")
+        return []
 
 # Funzione per aggiornare periodicamente la lista dei canali
 def refresh_channels_periodically():
@@ -826,15 +826,22 @@ async def stream_with_params(url: str, psw: str, type: str, id: str):
     if type != "tv" or not id.startswith("mediaflow-"):
         return {"streams": []}
     
+    # Ottieni tutti i canali (senza risoluzione URL)
     all_channels = get_all_channels(url, psw)
-    channel = next((c for c in all_channels if c["id"] == id), None)
     
-    if channel and "streamInfo" in channel:
-        print(f"Serving stream id: {channel['id']}")
-        return {"streams": [channel["streamInfo"]]}
-    else:
-        print(f"No matching stream found for channelID: {id}")
+    # Trova il canale specifico richiesto
+    original_channel = next((c for c in channels_data_cache if f"mediaflow-{c['id']}" == id), None)
+    
+    if not original_channel:
+        print(f"No matching channel found for channelID: {id}")
         return {"streams": []}
+    
+    # Risolvi l'URL del canale e crea le informazioni di stream
+    print(f"Trovato il canale, risolvo lo stream per: {original_channel['name']}")
+    stream_info = resolve_stream_url(original_channel, url, psw)
+    print(f"Stream risolto per {original_channel['name']}")
+    
+    return {"streams": [stream_info]}
 
 @app.get("/stream/{type}/{id}.json")
 async def stream(type: str, id: str, request: Request):
@@ -845,15 +852,20 @@ async def stream(type: str, id: str, request: Request):
         return {"streams": []}
     
     mediaflow_url, mediaflow_psw = extract_url_params(request)
-    all_channels = get_all_channels(mediaflow_url, mediaflow_psw)
-    channel = next((c for c in all_channels if c["id"] == id), None)
     
-    if channel and "streamInfo" in channel:
-        print(f"Serving stream id: {channel['id']}")
-        return {"streams": [channel["streamInfo"]]}
-    else:
-        print(f"No matching stream found for channelID: {id}")
+    # Trova il canale specifico richiesto
+    original_channel = next((c for c in channels_data_cache if f"mediaflow-{c['id']}" == id), None)
+    
+    if not original_channel:
+        print(f"No matching channel found for channelID: {id}")
         return {"streams": []}
+    
+    # Risolvi l'URL del canale e crea le informazioni di stream
+    print(f"Trovato il canale, risolvo lo stream per: {original_channel['name']}")
+    stream_info = resolve_stream_url(original_channel, mediaflow_url, mediaflow_psw)
+    print(f"Stream risolto per {original_channel['name']}")
+    
+    return {"streams": [stream_info]}
 
 # Avvio dell'applicazione
 if __name__ == "__main__":
