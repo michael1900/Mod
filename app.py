@@ -21,6 +21,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PORT = int(os.environ.get('PORT', 3000))
 DOMAIN = os.environ.get('DOMAIN', 'melatv0bug.duckdns.org')  # Dominio esterno
 M3U8_GENERATOR = os.path.join(BASE_DIR, 'm3u8_vavoo.py')  # Script per generare la lista m3u8
+CHIAVE_SCRIPT = os.path.join(BASE_DIR, 'chiave.py')  # Script per generare la signature
 M3U8_FILE = os.path.join(BASE_DIR, 'channels.m3u8')  # File m3u8 generato
 
 # Default MediaFlow settings dalle variabili d'ambiente
@@ -139,6 +140,42 @@ def get_category_keywords():
     save_json_file(CATEGORY_KEYWORDS_FILE, default_categories)
     return default_categories
 
+def get_vavoo_signature():
+    """Ottiene la signature per Vavoo, generando una nuova se necessario"""
+    global vavoo_signature, vavoo_signature_timestamp
+    current_time = time.time()
+    
+    # Se la signature non esiste o è scaduta (dopo 3 ore)
+    if not vavoo_signature or (current_time - vavoo_signature_timestamp) > 10800:
+        try:
+            # Prova prima con lo script chiave.py
+            if os.path.exists(CHIAVE_SCRIPT):
+                print(f"Ottenimento signature da: {CHIAVE_SCRIPT}")
+                result = subprocess.run(['python3', CHIAVE_SCRIPT], 
+                                      capture_output=True, text=True, check=True)
+                new_signature = result.stdout.strip()
+                if new_signature:
+                    vavoo_signature = new_signature
+                    vavoo_signature_timestamp = current_time
+                    print(f"Nuova signature ottenuta da chiave.py: {vavoo_signature[:10]}...")
+                    return vavoo_signature
+            
+            # Altrimenti usa lo script m3u8_vavoo.py
+            print(f"Ottenimento signature da: {M3U8_GENERATOR}")
+            result = subprocess.run(['python3', M3U8_GENERATOR, '--get-signature'], 
+                                  capture_output=True, text=True, check=True)
+            new_signature = result.stdout.strip()
+            if new_signature:
+                vavoo_signature = new_signature
+                vavoo_signature_timestamp = current_time
+                print(f"Nuova signature ottenuta da m3u8_vavoo.py: {vavoo_signature[:10]}...")
+            else:
+                print("Nessuna signature ottenuta dagli script esterni")
+        except Exception as e:
+            print(f"Errore durante l'ottenimento della signature: {e}")
+    
+    return vavoo_signature
+
 def create_manifest(mediaflow_url, mediaflow_psw):
     """Crea il manifest dell'addon con i parametri personalizzati"""
     # Carica le categorie dal file
@@ -185,30 +222,6 @@ def get_channel_category(channel_name):
     
     # Se nessuna categoria corrisponde, usa ALTRI
     return "ALTRI"
-
-def get_vavoo_signature():
-    """Ottiene la signature per Vavoo, dal file o generando una nuova"""
-    global vavoo_signature, vavoo_signature_timestamp
-    current_time = time.time()
-    
-    # Se la signature non esiste o è scaduta (dopo 3 ore)
-    if not vavoo_signature or (current_time - vavoo_signature_timestamp) > 10800:
-        try:
-            # Esegui lo script m3u8_vavoo.py per ottenere la signature
-            print(f"Ottenimento signature da: {M3U8_GENERATOR}")
-            result = subprocess.run(['python3', M3U8_GENERATOR, '--get-signature'], 
-                                  capture_output=True, text=True, check=True)
-            new_signature = result.stdout.strip()
-            if new_signature:
-                vavoo_signature = new_signature
-                vavoo_signature_timestamp = current_time
-                print(f"Nuova signature ottenuta: {vavoo_signature[:10]}...")
-            else:
-                print("Nessuna signature ottenuta dallo script")
-        except Exception as e:
-            print(f"Errore durante l'ottenimento della signature: {e}")
-    
-    return vavoo_signature
 
 def generate_m3u8_list():
     """Genera la lista m3u8 utilizzando lo script m3u8_vavoo.py"""
@@ -573,8 +586,9 @@ async def status():
     # Controlla le cache
     cache_channels = len(channels_data_cache)
     
-    # Controlla lo script
-    script_exists = os.path.exists(M3U8_GENERATOR)
+    # Controlla gli scripts
+    m3u8_generator_exists = os.path.exists(M3U8_GENERATOR)
+    chiave_script_exists = os.path.exists(CHIAVE_SCRIPT)
     
     return {
         "m3u8_file": {
@@ -591,9 +605,15 @@ async def status():
             "channels_in_cache": cache_channels,
             "cache_timestamp": channels_data_timestamp
         },
-        "script": {
-            "exists": script_exists,
-            "path": M3U8_GENERATOR
+        "scripts": {
+            "m3u8_generator": {
+                "exists": m3u8_generator_exists,
+                "path": M3U8_GENERATOR
+            },
+            "chiave_script": {
+                "exists": chiave_script_exists,
+                "path": CHIAVE_SCRIPT
+            }
         },
         "categories": list(get_category_keywords().keys())
     }
