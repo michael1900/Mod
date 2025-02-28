@@ -215,10 +215,10 @@ def main():
         with open("category_keywords.json", 'w', encoding='utf-8') as f:
             json.dump(category_keywords, f, indent=4)
     
-    channel_logos = load_config("channel_logos.json")
+    channel_logos = load_config("channel_icons.json")
     if not channel_logos:
         channel_logos = {}  # Non usiamo più il CHANNEL_LOGOS predefinito
-        with open("channel_logos.json", 'w', encoding='utf-8') as f:
+        with open("channel_icons.json", 'w', encoding='utf-8') as f:
             json.dump(channel_logos, f, indent=4)
     
     print("Getting authentication signature...")
