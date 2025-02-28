@@ -43,10 +43,23 @@ def get_category(channel_name, category_keywords):
             return category
     return "ALTRI"
 
+def normalize_channel_name(channel_name):
+    # Rimuovi il suffisso .c o .s e fai lo strip
+    clean_name = re.sub(r"\.[cs]$", "", channel_name, flags=re.IGNORECASE).strip()
+    # Rimuovi gli ultimi 3 caratteri se il nome è abbastanza lungo
+    if len(clean_name) > 3:
+        clean_name = clean_name[:-3]
+    return clean_name.lower()
+
 def get_logo_url(channel_name, channel_logos):
-    logo_url = channel_logos.get(channel_name.lower(), "")
-    if logo_url:
-        return logo_url
+    # Normalizza il nome del canale rimuovendo suffisso e ultimi 3 caratteri
+    normalized_name = normalize_channel_name(channel_name)
+    
+    # Cerca nel dizionario usando i nomi normalizzati
+    for logo_channel, logo_url in channel_logos.items():
+        normalized_logo_channel = normalize_channel_name(logo_channel)
+        if normalized_name == normalized_logo_channel:
+            return logo_url
     
     # Genera URL placeholder se non esiste un logo
     clean_name = re.sub(r"\.[cs]$", "", channel_name, flags=re.IGNORECASE).strip()
@@ -165,26 +178,26 @@ def main():
     # Carica configurazioni da file separati
     channel_filters = load_config("channel_filters.json")
     if not channel_filters:
-        channel_filters = CHANNEL_FILTERS  # Fallback se il file non esiste
-        # Salva il file
+        channel_filters = []  # Nessun filtro predefinito
+        # Crea un file vuoto
         with open("channel_filters.json", 'w', encoding='utf-8') as f:
             json.dump(channel_filters, f, indent=4)
     
     channel_remove = load_config("channel_remove.json")
     if not channel_remove:
-        channel_remove = CHANNEL_REMOVE  # Fallback
+        channel_remove = []  # Nessun filtro di rimozione predefinito
         with open("channel_remove.json", 'w', encoding='utf-8') as f:
             json.dump(channel_remove, f, indent=4)
     
     category_keywords = load_config("category_keywords.json")
     if not category_keywords:
-        category_keywords = CATEGORY_KEYWORDS  # Fallback
+        category_keywords = {"ALTRI": []}  # Solo la categoria default
         with open("category_keywords.json", 'w', encoding='utf-8') as f:
             json.dump(category_keywords, f, indent=4)
     
     channel_logos = load_config("channel_logos.json")
     if not channel_logos:
-        channel_logos = CHANNEL_LOGOS  # Fallback
+        channel_logos = {}  # Non usiamo più il CHANNEL_LOGOS predefinito
         with open("channel_logos.json", 'w', encoding='utf-8') as f:
             json.dump(channel_logos, f, indent=4)
     
@@ -204,33 +217,7 @@ def main():
     generate_m3u(channels_json, signature, channel_filters, channel_remove, category_keywords, channel_logos)
     print("Done!")
 
-# Dati di fallback in caso i file non esistano
-CHANNEL_FILTERS = [
-    "sky", "fox", "rai", "cine34", "real time", "crime+ investigation", "top crime", "wwe", "tennis", "k2",
-    "inter", "rsi", "la 7", "la7", "la 7d", "la7d", "27 twentyseven", "premium crime", "comedy central", "super!",
-    "animal planet", "hgtv", "avengers grimm channel", "catfish", "rakuten", "nickelodeon", "cartoonito", "nick jr",
-    "history", "nat geo", "tv8", "canale 5", "italia", "mediaset", "rete 4",
-    "focus", "iris", "discovery", "dazn", "cine 34", "la 5", "giallo", "dmax", "cielo", "eurosport", "disney+", "food", "tv 8", "MOTORTREND",
-    "BOING", "FRISBEE", "DEEJAY TV", "CARTOON NETWORK", "TG COM 24", "WARNER TV", "BOING PLUS", "27 TWENTY SEVEN", "TGCOM 24", "SKY UNO", "sky uno"
-]
-
-CHANNEL_REMOVE = ["maria+vision", "telepace", "uninettuno", "lombardia", "cusano", "FM italia", "Juwelo", "kiss kiss", "qvc", "rete tv", "italia 3", "fishing", "inter tv", "avengers"]
-
-CATEGORY_KEYWORDS = {
-    "SKY": ["sky cin", "tv 8", "fox", "comedy central", "animal planet", "nat geo", "tv8", "sky atl", "sky uno", "sky prima", "sky serie", "sky arte", "sky docum", "sky natu", "cielo", "history", "sky tg"],
-    "RAI": ["rai"],
-    "MEDIASET": ["mediaset", "canale 5", "rete 4", "italia", "focus", "tg com 24", "tgcom 24", "premium crime", "iris", "mediaset iris", "cine 34", "27 twenty seven", "27 twentyseven"],
-    "DISCOVERY": ["discovery", "real time", "investigation", "top crime", "wwe", "hgtv", "nove", "dmax", "food network", "warner tv"],
-    "SPORT": ["sport", "dazn", "tennis", "moto", "f1", "golf", "sportitalia", "sport italia", "solo calcio", "solocalcio"],
-    "ALTRI": [],
-    "BAMBINI": ["boing", "cartoon", "k2", "discovery k2", "nick", "super", "frisbee"]
-}
-
-CHANNEL_LOGOS = {
-    "sky uno .c": "https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/italy/sky-uno-it.png",
-    "rai 1 .c": "https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/italy/rai-1-it.png",
-    # Il resto dei loghi è stato rimosso per brevità e sarà salvato nel file JSON
-}
+# Nessun dato di fallback, leggiamo tutto dai file
 
 if __name__ == "__main__":
     main()
