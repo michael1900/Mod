@@ -3,7 +3,6 @@ import json
 import os
 import re
 import time
-import random
 import subprocess
 import requests
 from urllib.parse import urlencode, quote_plus, unquote
@@ -122,24 +121,24 @@ def extract_url_params(request: Request):
 
 def get_category_keywords():
     """Ottiene le categorie dal file category_keywords.json"""
-    # Se il file esiste, caricalo
-    if os.path.exists(CATEGORY_KEYWORDS_FILE):
-        return load_json_file(CATEGORY_KEYWORDS_FILE)
+    return load_json_file(CATEGORY_KEYWORDS_FILE, {})
+
+def get_channel_category(channel_name):
+    """Determina la categoria di un canale in base al suo nome"""
+    category_keywords = get_category_keywords()
+    if not category_keywords:
+        return "ALTRI"
+        
+    channel_name_lower = channel_name.lower()
     
-    # Altrimenti usa categorie di default e salva il file
-    default_categories = {
-        "SKY": ["sky cin", "tv 8", "fox", "comedy central", "animal planet", "nat geo", "tv8", "sky atl", "sky uno"],
-        "RAI": ["rai"],
-        "MEDIASET": ["mediaset", "canale 5", "rete 4", "italia", "focus", "tg com 24", "premium crime", "iris"],
-        "DISCOVERY": ["discovery", "real time", "investigation", "top crime", "wwe", "hgtv", "nove", "dmax"],
-        "SPORT": ["sport", "dazn", "tennis", "moto", "f1", "golf", "sportitalia", "solo calcio"],
-        "ALTRI": [],
-        "BAMBINI": ["boing", "cartoon", "k2", "discovery k2", "nick", "super", "frisbee"]
-    }
+    # Cerca in tutte le categorie
+    for category, keywords in category_keywords.items():
+        for keyword in keywords:
+            if keyword.lower() in channel_name_lower:
+                return category
     
-    # Salva le categorie di default
-    save_json_file(CATEGORY_KEYWORDS_FILE, default_categories)
-    return default_categories
+    # Se nessuna categoria corrisponde, usa ALTRI
+    return "ALTRI"
 
 def get_vavoo_signature():
     """Ottiene la signature per Vavoo, generando una nuova se necessario"""
@@ -209,20 +208,6 @@ def create_manifest(mediaflow_url, mediaflow_psw):
         "icon": "https://dl.strem.io/addon-logo.png",
         "background": "https://dl.strem.io/addon-background.jpg",
     }
-
-def get_channel_category(channel_name):
-    """Determina la categoria di un canale in base al suo nome"""
-    category_keywords = get_category_keywords()
-    channel_name_lower = channel_name.lower()
-    
-    # Cerca in tutte le categorie
-    for category, keywords in category_keywords.items():
-        for keyword in keywords:
-            if keyword.lower() in channel_name_lower:
-                return category
-    
-    # Se nessuna categoria corrisponde, usa ALTRI
-    return "ALTRI"
 
 def generate_m3u8_list():
     """Genera la lista m3u8 utilizzando lo script m3u8_vavoo.py"""
@@ -366,15 +351,6 @@ def get_channels_data():
             channels = parse_m3u8_to_channels()
             print(f"Analizzati {len(channels)} canali da M3U8")
         
-        # Se ancora non abbiamo canali, prova a generare la lista e riprovare
-        if not channels:
-            print("Nessun canale trovato, generazione lista e nuovo tentativo...")
-            if generate_m3u8_list():
-                channels = parse_m3u8_to_channels()
-                print(f"Nuovo tentativo: analizzati {len(channels)} canali da M3U8")
-            else:
-                print("Impossibile generare la lista dei canali")
-        
         if channels:
             channels_data_cache = channels
             channels_data_timestamp = current_time
@@ -444,20 +420,12 @@ def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
                                 if resolver_result["success"] and resolver_result["resolved_url"]:
                                     stream_url = resolver_result["resolved_url"]
                                     print(f"URL risolto con successo tramite resolver.py: {stream_url[:50]}...")
-                                else:
-                                    print(f"Resolver.py non ha restituito un URL valido: {result.stdout}")
                             except json.JSONDecodeError:
                                 # Se non è JSON, potrebbe essere l'URL direttamente
                                 resolved_url = result.stdout.strip()
                                 if resolved_url:
                                     stream_url = resolved_url
                                     print(f"URL risolto con successo (testo diretto): {stream_url[:50]}...")
-                                else:
-                                    print(f"Output non valido da resolver.py: {result.stdout}")
-                        else:
-                            print(f"Errore nell'esecuzione di resolver.py: Codice {result.returncode}, Errore: {result.stderr}")
-                    else:
-                        print(f"Script resolver.py non trovato in: {RESOLVER_SCRIPT}")
                 except Exception as e:
                     print(f"Errore durante la chiamata a resolver.py: {e}")
             
@@ -476,7 +444,7 @@ def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
             
             final_url = f"https://{mediaflow_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
         else:
-            # Fallback: usa l'URL originale senza signature
+            # Usa l'URL originale senza signature
             params = {
                 "api_password": mediaflow_psw,
                 "d": stream_url
@@ -560,79 +528,20 @@ def refresh_channels_periodically():
 def create_index_template():
     """Crea il file del template HTML per la pagina principale"""
     template_path = os.path.join(BASE_DIR, "templates", "index.html")
+    template_json_path = os.path.join(BASE_DIR, "template.json")
+    
     if not os.path.exists(template_path):
-        with open(template_path, "w", encoding="utf-8") as f:
-            f.write("""
-<!DOCTYPE html>
-<html>
-<head>
-    <title>MediaFlow IPTV Addon</title>
-    <style>
-        body { font-family: Arial, sans-serif; max-width: 650px; margin: 0 auto; padding: 20px; }
-        .header { text-align: center; margin-bottom: 30px; }
-        .form-group { margin-bottom: 20px; }
-        label { display: block; margin-bottom: 8px; font-weight: bold; }
-        input[type="text"], input[type="password"] { width: 100%; padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 4px; }
-        .btn { display: inline-block; padding: 12px 20px; background: #4caf50; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; }
-        .btn:hover { background: #45a049; }
-        .result-section { margin-top: 30px; padding: 20px; background-color: #f8f8f8; border-radius: 8px; display: none; }
-        .install-btn { background: #2196F3; }
-        .install-btn:hover { background: #0b7dda; }
-        .url-display { word-break: break-all; padding: 10px; background: #eee; border-radius: 4px; margin: 15px 0; }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>MediaFlow IPTV Addon per Stremio</h1>
-        <p>Inserisci i dati di MediaFlow Proxy per generare il link di installazione</p>
-    </div>
-    
-    <div class="form-group">
-        <label for="mediaflow_url">URL MediaFlow Proxy:</label>
-        <input type="text" id="mediaflow_url" value="{{ default_url }}" placeholder="es. mfp0bug.duckdns.org">
-    </div>
-    
-    <div class="form-group">
-        <label for="mediaflow_psw">Password MediaFlow:</label>
-        <input type="password" id="mediaflow_psw" value="{{ default_psw }}" placeholder="Password">
-    </div>
-    
-    <button id="generateLink" class="btn">Genera Link di Installazione</button>
-    
-    <div id="resultSection" class="result-section">
-        <h3>Link generato!</h3>
-        <p>Ecco il link per installare l'addon in Stremio:</p>
-        <div id="generatedUrl" class="url-display"></div>
-        <a id="stremioLink" href="#">
-            <button class="btn install-btn">Installa in Stremio</button>
-        </a>
-    </div>
-    
-    <script>
-        document.getElementById('generateLink').addEventListener('click', function() {
-            const mfpUrl = document.getElementById('mediaflow_url').value.trim();
-            const mfpPsw = document.getElementById('mediaflow_psw').value.trim();
-            
-            if (!mfpUrl || !mfpPsw) {
-                alert('Inserisci sia URL che password');
-                return;
-            }
-            
-            const domain = '{{ domain }}';
-            const encodedUrl = encodeURIComponent(mfpUrl);
-            const encodedPsw = encodeURIComponent(mfpPsw);
-            
-            // Usa il formato del percorso URL che Stremio si aspetta
-            const stremioLink = `stremio://${domain}/mfp/${encodedUrl}/psw/${encodedPsw}/manifest.json`;
-            
-            document.getElementById('stremioLink').href = stremioLink;
-            document.getElementById('generatedUrl').textContent = stremioLink;
-            document.getElementById('resultSection').style.display = 'block';
-        });
-    </script>
-</body>
-</html>
-            """)
+        # Carica da JSON - senza fallback
+        if os.path.exists(template_json_path):
+            template_data = load_json_file(template_json_path)
+            html_content = template_data.get("index_html")
+            if html_content:
+                with open(template_path, "w", encoding="utf-8") as f:
+                    f.write(html_content)
+            else:
+                raise Exception("Template HTML non trovato nel file JSON")
+        else:
+            raise Exception(f"File template non trovato: {template_json_path}")
 
 # Rotte API
 
@@ -777,8 +686,7 @@ async def catalog(type: str, id: str, request: Request, genre: str = None, searc
     if search:
         search = search.lower()
         filtered_channels = [c for c in all_channels if search in c["name"].lower()]
-    
-    print(f"Serving catalog for {category} with {len(filtered_channels)} channels")
+        print(f"Serving catalog for {category} with {len(filtered_channels)} channels")
     return {"metas": filtered_channels}
 
 # Aggiunto supporto per il formato di percorso che Stremio usa per i metadati
