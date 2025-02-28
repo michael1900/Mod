@@ -425,6 +425,9 @@ def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
             # Aggiungi la signature
             stremio_headers["mediahubmx-signature"] = signature
             
+            # Aggiungi user-agent di Google Nexus (Android)
+            stremio_headers["user-agent"] = "Mozilla/5.0 (Linux; Android 10; Nexus 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.101 Mobile Safari/537.36"
+            
             # Crea l'URL finale per MediaFlow con l'URL risolto
             params = {
                 "api_password": mediaflow_psw,
@@ -466,6 +469,10 @@ def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
         
         # Per lo stream diretto, usa gli stessi headers
         stremio_headers = headers.copy()
+        
+        # Aggiungi user-agent di Google Nexus (Android)
+        stremio_headers["user-agent"] = "Mozilla/5.0 (Linux; Android 10; Nexus 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.101 Mobile Safari/537.36"
+        
         resolved_url = stream_url
     
     # Crea i due stream: 1) MediaFlow Proxy, 2) Stream diretto con headers
@@ -481,8 +488,8 @@ def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
     if resolved_url:
         direct_stream = {
             "url": resolved_url,
-            "title": f"{channel_name} (Diretto)",
-            "name": "Diretto"
+            "title": f"{channel_name} (Diretto Android)",
+            "name": "Diretto Android"
         }
         
         # Aggiungi gli headers se presenti
