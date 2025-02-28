@@ -336,6 +336,8 @@ def parse_m3u8_to_channels():
         if channels:
             save_json_file(CHANNELS_FILE, channels)
             print(f"Salvati {len(channels)} canali nel file JSON")
+        else:
+            print("Nessun canale trovato nel file M3U8")
         
         return channels
         
@@ -364,20 +366,21 @@ def get_channels_data():
             channels = parse_m3u8_to_channels()
             print(f"Analizzati {len(channels)} canali da M3U8")
         
-        # Se ancora non abbiamo canali, usa alcuni canali di esempio
+        # Se ancora non abbiamo canali, prova a generare la lista e riprovare
         if not channels:
-            print("Nessun canale trovato, utilizzo canali di esempio...")
-            channels = [
-                {"id": "rai1-example", "name": "Rai 1", "url": "https://example.com/rai1.m3u8", "genre": "RAI"},
-                {"id": "canale5-example", "name": "Canale 5", "url": "https://example.com/canale5.m3u8", "genre": "MEDIASET"},
-                {"id": "skysport-example", "name": "Sky Sport", "url": "https://example.com/skysport.m3u8", "genre": "SPORT"},
-                {"id": "discovery-example", "name": "Discovery Channel", "url": "https://example.com/discovery.m3u8", "genre": "DISCOVERY"}
-            ]
-            save_json_file(CHANNELS_FILE, channels)
+            print("Nessun canale trovato, generazione lista e nuovo tentativo...")
+            if generate_m3u8_list():
+                channels = parse_m3u8_to_channels()
+                print(f"Nuovo tentativo: analizzati {len(channels)} canali da M3U8")
+            else:
+                print("Impossibile generare la lista dei canali")
         
-        channels_data_cache = channels
-        channels_data_timestamp = current_time
-        print(f"Caricati {len(channels)} canali in totale")
+        if channels:
+            channels_data_cache = channels
+            channels_data_timestamp = current_time
+            print(f"Caricati {len(channels)} canali in totale")
+        else:
+            print("Nessun canale disponibile")
     else:
         print(f"Utilizzo {len(channels_data_cache)} canali dalla cache")
     
@@ -473,7 +476,6 @@ def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
             
             final_url = f"https://{mediaflow_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
         else:
-            print("Signature non ottenuta, uso URL non risolto")
             # Fallback: usa l'URL originale senza signature
             params = {
                 "api_password": mediaflow_psw,
@@ -873,9 +875,11 @@ if __name__ == "__main__":
     
     # Genera la lista canali all'avvio
     print("Generazione lista canali all'avvio...")
-    generate_m3u8_list()  # Prima genera la lista M3U8
-    channels = parse_m3u8_to_channels()  # Poi analizzala
-    print(f"Canali caricati: {len(channels)}")
+    if generate_m3u8_list():  # Prima genera la lista M3U8
+        channels = parse_m3u8_to_channels()  # Poi analizzala
+        print(f"Canali caricati: {len(channels)}")
+    else:
+        print("Impossibile generare la lista canali all'avvio")
     
     # Avvia un thread per l'aggiornamento periodico
     print("Avvio thread per aggiornamento periodico...")
