@@ -485,8 +485,8 @@ def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
     ]
     
     # Aggiungi lo stream smallprox
-    # Usiamo l'URL originale o risolto, in base a ciò che è disponibile
-    url_to_proxy = resolved_url if resolved_url else stream_url
+    # Usiamo sempre l'URL originale non risolto
+    url_to_proxy = stream_url
     
     # Prepara i parametri per smallprox
     smallprox_params = {
