@@ -372,8 +372,8 @@ def to_meta(channel, mediaflow_url, mediaflow_psw):
         "background": logo,
         "logo": logo
     }
-    def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
-  #  """Risolve l'URL di stream di un canale, restituendo due stream: uno con MediaFlow e uno con smallprox"""
+def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
+    """Risolve l'URL di stream di un canale, restituendo due stream: uno con MediaFlow e uno con smallprox"""
     channel_name = clean_channel_name(channel["name"])
     
     # Se il canale ha headers specifici, usali
