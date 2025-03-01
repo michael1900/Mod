@@ -296,15 +296,21 @@ def resolve_stream_url(channel, mf_url, mf_psw):
         if not url_to_proxy.endswith("/index.m3u8"):
             url_to_proxy = url_to_proxy + "/index.m3u8"
     
-    # Modifica nel formato dei parametri per smallprox - passa solo user-agent, referer e origin
+    # Modifica nel formato dei parametri per smallprox - usa gli stessi header di MediaFlow
     smallprox_params = {
-        "url": url_to_proxy,
-        "referer": "https://vavoo.to/",
-        "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/33.0 Mobile/15E148 Safari/605.1.15",
-        "origin": "https://vavoo.to/"
+        "url": url_to_proxy
     }
     
-    # Rimuovere la firma dalla richiesta a SmallProx
+    # Aggiungi gli header originali del canale
+    for key, value in headers.items():
+        smallprox_params[key.lower()] = value
+    
+    # Aggiungi user-agent comune con MediaFlow
+    smallprox_params["user-agent"] = "Mozilla/5.0 (Linux; Android 10; Nexus 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.101 Mobile Safari/537.36"
+    
+    # Aggiungi signature se disponibile
+    if sig_placeholder == "[$KEY$]" and signature:
+        smallprox_params["mediahubmx-signature"] = signature
     
     smallprox_url = f"https://smallprox.onrender.com/proxy/m3u?{urlencode(smallprox_params, quote_via=quote_plus)}"
     
