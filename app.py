@@ -286,13 +286,17 @@ def resolve_stream_url(channel, mf_url, mf_psw):
         }
     ]
     
-    url_to_proxy = stream_url
+    # Determina quale URL utilizzare per i proxy
+    # Per SmallProx, dovremmo usare lo stesso URL che riceve MediaFlow per coerenza
+    url_to_proxy = resolved_url or stream_url
+    
+    # Applica le stesse trasformazioni URL come prima, se necessarie
     if "vavoo.to/vto-tv/play/" in url_to_proxy:
         url_to_proxy = url_to_proxy.replace("/vto-tv/play/", "/play/")
         if not url_to_proxy.endswith("/index.m3u8"):
             url_to_proxy = url_to_proxy + "/index.m3u8"
     
-    # Modifica nel formato dei parametri per smallprox
+    # Modifica nel formato dei parametri per smallprox - passa solo user-agent, referer e origin
     smallprox_params = {
         "url": url_to_proxy,
         "referer": "https://vavoo.to/",
@@ -300,8 +304,7 @@ def resolve_stream_url(channel, mf_url, mf_psw):
         "origin": "https://vavoo.to/"
     }
     
-    if sig_placeholder == "[$KEY$]" and signature:
-        smallprox_params["mediahubmx-signature"] = signature
+    # Rimuovere la firma dalla richiesta a SmallProx
     
     smallprox_url = f"https://smallprox.onrender.com/proxy/m3u?{urlencode(smallprox_params, quote_via=quote_plus)}"
     
