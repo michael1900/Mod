@@ -292,107 +292,6 @@ def resolve_stream_url(channel, mf_url, mf_psw):
         if not url_to_proxy.endswith("/index.m3u8"):
             url_to_proxy = url_to_proxy + "/index.m3u8"
     
-    smallprox_params = {
-        "url": url_to_proxy,
-        "header_Referer": "https://vavoo.to/",
-        "header_User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/33.0 Mobile/15E148 Safari/605.1.15",
-        "header_Origin": "https://vavoo.to/"
-    }
-    
-    if sig_placeholder == "[$KEY$]" and signature:
-        smallprox_params["header_mediahubmx-signature"] = signature
-    
-    smallprox_url = f"https://smallprox.onrender.com/proxy/m3u8?{urlencode(smallprox_params, quote_via=quote_plus)}"
-    
-    streams.append({            
-            mf_url_final = f"https://{mf_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
-    else:
-        params = {
-            "api_password": mf_psw,
-def resolve_stream_url(channel, mf_url, mf_psw):
-    channel_name = clean_channel_name(channel["name"])
-    headers = channel.get("headers", {})
-    sig_placeholder = channel.get("signature_placeholder")
-    stream_url = channel["url"]
-    resolved_url, stremio_headers = None, {}
-    
-    if sig_placeholder == "[$KEY$]":
-        signature = get_vavoo_signature()
-        
-        if signature:
-            if "localhost" not in stream_url:
-                try:
-                    RESOLVER_SCRIPT = os.path.join(BASE_DIR, 'resolver.py')
-                    if os.path.exists(RESOLVER_SCRIPT):
-                        result = subprocess.run(
-                            ['python3', RESOLVER_SCRIPT, '--url', stream_url, '--signature', signature, '--json'],
-                            capture_output=True, text=True, timeout=15
-                        )
-                        if result.returncode == 0 and result.stdout.strip():
-                            try:
-                                resolver_result = json.loads(result.stdout)
-                                if resolver_result["success"] and resolver_result["resolved_url"]:
-                                    resolved_url = resolver_result["resolved_url"]
-                            except json.JSONDecodeError:
-                                resolved_url = result.stdout.strip()
-                except Exception as e:
-                    print(f"Errore resolver.py: {e}")
-            
-            if headers:
-                stremio_headers = headers.copy()
-            
-            stremio_headers["mediahubmx-signature"] = signature
-            stremio_headers["user-agent"] = "Mozilla/5.0 (Linux; Android 10; Nexus 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.101 Mobile Safari/537.36"
-            
-            params = {
-                "api_password": mf_psw,
-                "d": resolved_url or stream_url
-            }
-            
-            for key, value in headers.items():
-                params[f"h_{key}"] = value
-            
-            params["h_mediahubmx-signature"] = signature
-            
-            mf_url_final = f"https://{mf_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
-        else:
-            params = {
-                "api_password": mf_psw,
-                "d": stream_url
-            }
-            
-            for key, value in headers.items():
-                params[f"h_{key}"] = value
-            
-            mf_url_final = f"https://{mf_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
-    else:
-        params = {
-            "api_password": mf_psw,
-            "d": stream_url
-        }
-        
-        for key, value in headers.items():
-            params[f"h_{key}"] = value
-        
-        mf_url_final = f"https://{mf_url}/proxy/hls/manifest.m3u8?{urlencode(params, quote_via=quote_plus)}"
-        stremio_headers = headers.copy()
-        stremio_headers["user-agent"] = "Mozilla/5.0 (Linux; Android 10; Nexus 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.101 Mobile/15E148 Safari/537.36"
-        resolved_url = stream_url
-    
-    streams = [
-        {
-            "url": mf_url_final,
-            "title": f"{channel_name} (MediaFlow Proxy)",
-            "name": "MediaFlow"
-        }
-    ]
-    
-    url_to_proxy = stream_url
-    if "vavoo.to/vto-tv/play/" in url_to_proxy:
-        url_to_proxy = url_to_proxy.replace("/vto-tv/play/", "/play/")
-        if not url_to_proxy.endswith("/index.m3u8"):
-            url_to_proxy = url_to_proxy + "/index.m3u8"
-    
     # Modifica nel formato dei parametri per smallprox
     smallprox_params = {
         "url": url_to_proxy,
@@ -407,12 +306,6 @@ def resolve_stream_url(channel, mf_url, mf_psw):
     smallprox_url = f"https://smallprox.onrender.com/proxy/m3u?{urlencode(smallprox_params, quote_via=quote_plus)}"
     
     streams.append({
-        "url": smallprox_url,
-        "title": f"{channel_name} (SmallProx)",
-        "name": "SmallProx"
-    })
-    
-    return streams
         "url": smallprox_url,
         "title": f"{channel_name} (SmallProx)",
         "name": "SmallProx"
