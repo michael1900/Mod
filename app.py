@@ -374,7 +374,7 @@ def to_meta(channel, mediaflow_url, mediaflow_psw):
     }
 
 def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
-    """Risolve l'URL di stream di un canale, restituendo due stream: uno con MediaFlow e uno diretto"""
+    """Risolve l'URL di stream di un canale, restituendo due stream: uno con MediaFlow e uno con smallprox"""
     channel_name = clean_channel_name(channel["name"])
     
     # Se il canale ha headers specifici, usali
@@ -475,7 +475,7 @@ def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
         
         resolved_url = stream_url
     
-    # Crea i due stream: 1) MediaFlow Proxy, 2) Stream diretto con headers
+    # Crea i due stream: 1) MediaFlow Proxy, 2) Stream smallprox
     streams = [
         {
             "url": mediaflow_url_final,
@@ -484,24 +484,31 @@ def resolve_stream_url(channel, mediaflow_url, mediaflow_psw):
         }
     ]
     
-    # Aggiungi lo stream diretto se è stato risolto
-    if resolved_url:
-        direct_stream = {
-            "url": resolved_url,
-            "title": f"{channel_name} (Diretto iPhone)",
-            "name": "Diretto iPhone"
-        }
-        
-        # Aggiungi gli headers se presenti
-        if stremio_headers:
-            # Modifico gli headers per il secondo stream con quelli iPhone
-            stremio_headers["user-agent"] = "Mozilla/5.0 (iPhone; CPU iPhone OS 14_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/33.0 Mobile/15E148 Safari/605.1.15"
-            stremio_headers["referer"] = "https://vavoo.to/"
-            stremio_headers["origin"] = "https://vavoo.to/"
-            
-            direct_stream["headers"] = stremio_headers
-        
-        streams.append(direct_stream)
+    # Aggiungi lo stream smallprox
+    # Usiamo l'URL originale o risolto, in base a ciò che è disponibile
+    url_to_proxy = resolved_url if resolved_url else stream_url
+    
+    # Prepara i parametri per smallprox
+    smallprox_params = {
+        "url": url_to_proxy,
+        "header_Referer": "https://vavoo.to/",
+        "header_User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 14_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/33.0 Mobile/15E148 Safari/605.1.15",
+        "header_Origin": "https://vavoo.to/"
+    }
+    
+    # Se c'era una signature nel canale originale, aggiungiamola
+    if signature_placeholder == "[$KEY$]" and signature:
+        smallprox_params["header_mediahubmx-signature"] = signature
+    
+    # Componi l'URL per smallprox
+    smallprox_url = f"https://smallprox.onrender.com/proxy/m3u8?{urlencode(smallprox_params, quote_via=quote_plus)}"
+    
+    # Aggiungi lo stream smallprox
+    streams.append({
+        "url": smallprox_url,
+        "title": f"{channel_name} (SmallProx)",
+        "name": "SmallProx"
+    })
     
     return streams
 
