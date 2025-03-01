@@ -312,7 +312,7 @@ def resolve_stream_url(channel, mf_url, mf_psw):
     if sig_placeholder == "[$KEY$]" and signature:
         smallprox_params["mediahubmx-signature"] = signature
     
-    smallprox_url = f"https://smallprox.onrender.com/proxy/m3u?{urlencode(smallprox_params, quote_via=quote_plus)}"
+    smallprox_url = f"https://smallprox.onrender.com/proxy/m3u8?{urlencode(smallprox_params, quote_via=quote_plus)}"
     
     streams.append({
         "url": smallprox_url,
